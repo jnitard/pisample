@@ -4,7 +4,7 @@
 ///
 /// Note: functions are considered slow path and return vectors by value.
 ///
-/// Note: the functions are returning vector<uint8_t>, those are midi sequences
+/// Note: the functions are returning vector<Note>, those are midi sequences
 /// that must be sent to the device via your favourite MIDI api.
 /// I used Alsa on Raspberry Pi + linux.
 
@@ -16,6 +16,17 @@
 
 namespace atom
 {
+  /// Output of most functions.
+  struct Note
+  {
+    bool OnOff;
+    uint8_t Channel;
+    uint8_t Note;
+    uint8_t Velocity;
+  };
+
+  constexpr int NumPads = 16;
+
   /// Short hand to avoid passing to many arguments to functions.
   /// Each value is interpreted as an intensity by the device where 0 is off
   /// and 127 the maximum value.
@@ -26,18 +37,33 @@ namespace atom
     uint8_t b;
   };
 
+  void assertColorValid(Color c);
+
   /// Values of pads are between these two values.
-  enum Pad : uint8_t
+  enum class Pad : uint8_t
   {
+    None = 0,
     /// Inclusive, bottom right pad.
-    One = 24,
+    One = 0x24,
     /// Exclusive
-    Last = 41
+    Last = 0x24 + 16
   };
+  constexpr uint8_t operator-(Pad lhs, Pad rhs)
+  {
+    return uint8_t(lhs) - uint8_t(rhs);
+  }
+
+  template <class Func>
+  void forAllPads(Func&& f)
+  {
+    for (uint8_t i = (uint8_t)atom::Pad::One; i < (uint8_t)atom::Pad::Last; ++i) {
+      std::forward<Func>(f)(atom::Pad(i));
+    }
+  }
 
   void assertPadValid(Pad);
 
-  enum PadMode : uint8_t
+  enum class PadMode : uint8_t
   {
     /// Turns the light off
     Off     = 0x00,
@@ -52,42 +78,51 @@ namespace atom
   void assertModeValid(PadMode);
 
   /// For intenal usage, the midi command to set any of the values for colors.
-  enum CommandPrefix : uint8_t
+  enum class CommandPrefix : uint8_t
   {
-    Mode  = 0x90,
-    Red   = 0x91,
-    Green = 0x92,
-    Blue  = 0x93
+    Mode  = 0x0,
+    Red   = 0x1,
+    Green = 0x2,
+    Blue  = 0x3
   };
 
 
   /// Initialize This is required to be done first and changing button colors.
-  inline std::vector<uint8_t> initSequence()
+  inline std::vector<Note> initSequence()
   {
-      return { 0x8F, 0x00, 0x7F };
+      return { Note{ 
+        .OnOff = false,
+        .Channel = 0,
+        .Note = 0,
+        .Velocity = 0x7F
+      } };
   }
 
   /// Change a pad mode. For anything to show up it must be set to something
   /// not Off a first time.
-  inline std::vector<uint8_t> changePadMode(Pad pad, PadMode mode)
+  inline std::vector<Note> changePadMode(Pad pad, PadMode mode)
   {
     assertPadValid(pad);
     assertModeValid(mode);
 
-    return { Mode, pad, mode };
+    return { Note{
+      .OnOff = true,
+      .Channel = static_cast<uint8_t>(CommandPrefix::Mode),
+      .Note = static_cast<uint8_t>(pad),
+      .Velocity = 0x7f
+    } };
   }
 
   /// Change the color of a pad to the given value.
-
-  inline std::vector<uint8_t> changePadColor(Pad pad, Color c)
+  inline std::vector<Note> changePadColor(Pad pad, Color c)
   {
-    assertPadValid(p);
+    assertPadValid(pad);
     assertColorValid(c);
 
     return {
-      Red, pad, c.r,
-      Green, pad, c.g,
-      Blue, pad, c.b
+      Note{ true, (uint8_t)CommandPrefix::Red,   (uint8_t)pad, c.r },
+      Note{ true, (uint8_t)CommandPrefix::Green, (uint8_t)pad, c.g },
+      Note{ true, (uint8_t)CommandPrefix::Blue,  (uint8_t)pad, c.b }
     };
   }
 
@@ -113,6 +148,7 @@ namespace atom
 
   inline void assertColorValid(Color c)
   {
+    using namespace std::string_literals;
     auto check = [] (uint8_t component, const char* name) { 
       if (component > 127) {
         throw std::out_of_range("Value for "s + name + " must be below 128");
@@ -122,5 +158,4 @@ namespace atom
     check(c.g, "green");
     check(c.b, "blue");
   }
-
 }
