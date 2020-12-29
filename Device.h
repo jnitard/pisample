@@ -4,6 +4,7 @@
 /// Not trying to support anything else
 
 #include "Atom.h"
+#include "Synth.h"
 #include "fmt.h"
 
 #include <alsa/asoundlib.h>
@@ -32,7 +33,7 @@ namespace ps
 
   void convertNote(atom::Note note, snd_seq_event& out);
 
-  /// Talk to an Atom device
+  /// Talk to an Atom device, gives callbacks to a synth if given
   class Device
   {
   public:
@@ -40,11 +41,14 @@ namespace ps
     Device(const Device&) = delete;
     ~Device();
 
+    void setSynth(Synth& synth) { _synth = & synth; }
+
     /// Returns true if anything changed, potentially indicating more things
     /// to poll.
     bool poll();
 
     void sendNotes(const std::vector<atom::Note>& notes);
+    void sendControl(atom::Control);
 
   private:
     void setCustomMode();
@@ -55,5 +59,7 @@ namespace ps
     snd_seq_addr_t _deviceAddress;
     std::unique_ptr<pollfd[]> _fds;
     int _nfds;
+
+    Synth* _synth = nullptr;
   };
 }

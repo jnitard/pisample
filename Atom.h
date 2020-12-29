@@ -16,7 +16,7 @@
 
 namespace atom
 {
-  /// Output of most functions.
+  /// What you need to talk to a MIDI API and send pad commands.
   struct Note
   {
     bool OnOff;
@@ -26,6 +26,13 @@ namespace atom
   };
 
   constexpr int NumPads = 16;
+
+  /// MIDI header = 0xB0 (i.e. channel is always 0)
+  struct Control
+  {
+    uint8_t Param;
+    uint8_t Value;
+  };
 
   /// Short hand to avoid passing to many arguments to functions.
   /// Each value is interpreted as an intensity by the device where 0 is off
@@ -86,13 +93,59 @@ namespace atom
     Blue  = 0x3
   };
 
+  /// type 'controller', channel 0, values 0 or 127.
+  /// These can be set on or off via the same value they send us.
+  enum class Buttons : uint8_t
+  {
+    // Left column
+    Setup = 86,
+    SetLoop = 85,
+    Editor = 31,
+    Nudge = 30,
+    ShowHide = 29,
+    Preset = 27,
+    Bank = 26,
+    FullLevel = 25,
+    NoteRepeat = 24,
+    Shift = 32,
+
+    // Right column
+    Up = 87,
+    Down = 89,
+    Left = 90,
+    Right = 102,
+    Select = 103,
+    Zoom = 104,
+    Click = 105,
+    Record = 107,
+    Play = 109,
+    Stop = 111,
+  };
+
+  inline Control switchButton(Buttons b, bool on)
+  {
+    return Control{ .Param = uint8_t(b), .Value = uint8_t(on ? 0x7F : 0x00) };
+  }
+
+  /// type 'controller', channel 0, values 1 for left or 65 for right
+  enum class Knobs : uint8_t
+  {
+    One = 14,
+    Two = 15,
+    Three = 16,
+    Four = 17,
+
+    Left = 1,
+    Right = 65
+  };
+
 
   /// Initialize This is required to be done first and changing button colors.
   inline std::vector<Note> initSequence()
   {
       return { Note{ 
         .OnOff = false,
-        .Channel = 0,
+        .Channel = 0xf,
         .Note = 0,
         .Velocity = 0x7F
       } };

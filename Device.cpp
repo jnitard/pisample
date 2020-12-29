@@ -13,6 +13,13 @@ using namespace ps;
 
 namespace c = std::chrono;
 
+namespace
+{
+  bool toOnOff(snd_seq_event_type_t type)
+  {
+    return type == SND_SEQ_EVENT_NOTEON;
+  }
+}
 
 void ps::convertNote(atom::Note note, snd_seq_event& out)
 {
@@ -67,19 +74,8 @@ Device::Device(const char* devicePortName)
   cerr << "Connected to device port: "
        << (int)_deviceAddress.client << ":" << (int)_deviceAddress.port << "\n";
 
-  snd_seq_event initDev;
-  memset(&initDev, 0, sizeof(initDev));
-  snd_seq_ev_set_direct(&initDev);
-  initDev.type = SND_SEQ_EVENT_NOTEOFF;
-  initDev.source.port = _hostPort;
-  initDev.dest = _deviceAddress;
-  initDev.data.note.channel = 0xf;
-  initDev.data.note.note = 0x00;
-  initDev.data.note.velocity = 0x7f;
-  err = snd_seq_event_output_direct(_seq, &initDev);
-  if (err < 0) {
-    throw DeviceInitError("Failed to send initial setup to device: {}", err);
-  }
+
+  sendNotes(atom::initSequence());
 
   _nfds = snd_seq_poll_descriptors_count(_seq, POLLIN);
   _fds = make_unique<pollfd[]>(_nfds);
@@ -120,6 +116,23 @@ void Device::sendNotes(const vector<Note>& notes)
   }
 }
 
+void Device::sendControl(Control c)
+{
+  snd_seq_event ctl;
+  memset(&ctl, 0, sizeof(ctl));
+  snd_seq_ev_set_direct(&ctl);
+  ctl.type = SND_SEQ_EVENT_CONTROLLER;
+  ctl.source.port = _hostPort;
+  ctl.dest = _deviceAddress;
+  ctl.data.control.channel = 0;
+  ctl.data.control.param = c.Param;
+  ctl.data.control.value = c.Value;
+  int err = snd_seq_event_output_direct(_seq, &ctl);
+  if (err < 0) {
+    throw DeviceInitError("Failed to send control to device: {}", err);
+  }
+}
+
 bool Device::poll()
 {
   int nActive = ::poll(_fds.get(), _nfds, 0);
@@ -143,27 +156,58 @@ bool Device::poll()
       break; // should have happened really, but defensive
     }
 
-    cout << "Source: " << (int) event->source.client << ":"
-          << (int) event->source.port
-          << ", type: " << alsa::eventToString(event->type);
+    auto printType = [&] {
+      cout << "Source: " << (int) event->source.client << ":"
+           << (int) event->source.port
+           << ", type: " << alsa::eventToString(event->type);
+    };
+
     switch (event->type) {
       case SND_SEQ_EVENT_NOTEON:
       case SND_SEQ_EVENT_NOTEOFF:
-        cout << ", channel: " << (int)event->data.note.channel
-              << ", note: " << (int)event->data.note.note
-              << ", velocity: " << (int)event->data.note.velocity;
+        if (_synth) {
+          _synth->event(Note{
+            .OnOff = toOnOff(event->type),
+            .Channel = event->data.note.channel,
+            .Note = event->data.note.note,
+            .Velocity = event->data.note.velocity
+          });
+        }
+        else {
+          printType();
+          cout << '\n';
+        }
         break;
-      case SND_SEQ_EVENT_CHANPRESS:
+
       case SND_SEQ_EVENT_CONTROLLER:
-        cout << ", channel: " << (int)event->data.control.channel
-              << ", param: " << event->data.control.param
-              << ", value: " << event->data.control.value;
+        if (event->data.control.channel != 0) {
+          cerr << "UNKNOWN CHANNEL IN CONTROL: " <<
+            (int)event->data.control.channel << ", dropping\n";
+          break;
+        }
+
+        if (_synth) {
+          _synth->event(Control{
+            .Param = (uint8_t)event->data.control.param,
+            .Value = (uint8_t)event->data.control.value
+          });
+        }
+        else {
+          printType();
+          cout << '\n';
+        }
+
+        break;
+
+      case SND_SEQ_EVENT_CHANPRESS:
+        printType();
+        cout << '\n';
         break;
       case SND_SEQ_EVENT_PORT_UNSUBSCRIBED:
+        printType();
         cerr << ", Device disconnected, exiting\n";
         return EXIT_FAILURE;
     }
-    cout << "\n";
   } while (snd_seq_event_input_pending(_seq, false) > 0);
 
   return true;

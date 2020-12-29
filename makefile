@@ -6,6 +6,7 @@ CXXFLAGS+=-fdiagnostics-color=always
 
 
 #### Cross compilation stuff ####
+ifndef X86
 CXX=arm-linux-gnueabihf-g++.exe
 # This needs to contain includes and binaries for:
 # - alsa
@@ -14,6 +15,7 @@ CXX=arm-linux-gnueabihf-g++.exe
 # The includes must be in their own folder per project (say fmt/format.h).
 # The libraries must all be in the "lib" subfolder.
 ROOT=../pi
+endif
 #### ----------------------- ####
 
 
@@ -30,41 +32,59 @@ LFLAGS += -lfmt
 
 BIN = pisample
 
+.PHONY: all
 all: $(BIN)
 
-SRC = main.cpp    \
-      Device.cpp  \
-      Pads.cpp    \
+SRC = main.cpp      \
+      Device.cpp    \
+      Pads.cpp      \
+      Recorder.cpp  \
 #
 
 OBJ  := $(patsubst %.cpp,%.o,$(SRC))
 DEPS := $(patsubst %.o,%.d,$(OBJ))
+PATHOBJ = $(patsubst %.o,obj/%.o,$(OBJ))
+PATHDEPS = $(patsubst %.d,obj/%.d,$(DEPS))
 
-%.d: %.cpp
-	$(CXX) $(CXXFLAGS) $(CFLAGS) -MM $< > $@
+ifneq ($(MAKECMDGOALS), clean)
+-include $(PATHDEPS)
+endif
 
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) $(CFLAGS) -c -o $@ $<
+.PHONY: obj
+obj:
+	@mkdir -p obj
 
--include $(DEPS)
+obj/%.o: %.cpp | obj
+	$(CXX) $(CXXFLAGS) $(CFLAGS) -MMD -MP -c -o $@ $<
+
 $(OBJ) : $(DEPS)
 
-$(BIN): $(OBJ)
+$(BIN): $(PATHOBJ)
 $(BIN):
-	$(CXX) $(CXXFLAGS) $(CFLAGS)  -o $(BIN) $(OBJ) $(LFLAGS)
-
+	$(CXX) $(CXXFLAGS) $(CFLAGS)  -o $(BIN) $(PATHOBJ) $(LFLAGS)
 
 
 # run on the PI from the host via `make run`
 # need SSH keys in the proper places
+ifndef PI_IP
 PI_HOST:=raspberrypi.local
 PI_IP:=$(shell dig $(PI_HOST) A +noall +answer | sed -r 's/.*A[ \t]*(.*)/\1/')
+endif
 PI:=pi@$(PI_IP)
-run: $(BIN)
-	@scp $(BIN) *.cpp *.h $(PI):pisample/ 2>/dev/null
+
+
+.PHONY: sync run debug clean
+sync: $(BIN)
+	@echo "Connecting to ${PI}"
+	@scp $(BIN) *.cpp *.h $(PI):pisample/ 1>/dev/null 2>/dev/null
 	@echo "Synch’ed files"
+
+run: sync
+	@ssh -t $(PI) "bash -c '~/pisample/pisample --port 24'"
+
+debug: $(BIN)
 	@ssh -t $(PI) "bash -c 'cd pisample && gdb --args ~/pisample/pisample --port 24'"
 
 clean:
-	rm $(BIN)
-	rm -rf *.o
+	rm -rf $(BIN)
+	rm -rf obj

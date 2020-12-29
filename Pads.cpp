@@ -56,7 +56,7 @@ Animation ps::caterpillar()
     case 0: return Color{96,  0,  0};
     case 1: return Color{ 0, 96,  0};
     case 2: return Color{ 0,  0, 96};
-    case 3: return Color{ 96, 96, 96};
+    case 3: return Color{96, 96, 96};
     }
     __builtin_unreachable();
   };
@@ -73,7 +73,7 @@ Animation ps::caterpillar()
     .Time = c::milliseconds(0),
   };
 
-  auto frameTime = c::milliseconds(50);
+  auto frameTime = c::milliseconds(100);
 
   for (int i = 0; i < 4; ++i) {
     result.push_back(s);
