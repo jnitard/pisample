@@ -61,6 +61,11 @@ namespace ps
     static constexpr int _rate = 44100;
     static constexpr int _channels = 2;
     static constexpr int _sampleBytes = 2;
+    // The code supports using 24 bits i.e. 3 bytes but then each samples
+    // is encoded as a int32_t not exactly 3 bytes. See alsa docs:
+    // ```
+    // SND_PCM_FORMAT_S24_LE : Signed 24 bit Little Endian using low three bytes in 32-bit word 
+    // ```
     static constexpr int _storageBytes = storageBytes(_sampleBytes);
 
     // **** these variables should only be accessed in the rec thread ****

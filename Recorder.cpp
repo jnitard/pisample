@@ -99,7 +99,7 @@ void Recorder::startRecording()
         return SND_PCM_FORMAT_S24_LE;
       default:
         throw invalid_argument("FLAC only support native (i.e. little endian "
-          "on raspberry pi, with 16 or 32 bit per sample") ;
+          "on raspberry pi), with 16 or 32 bit per sample") ;
     }
   };
 
@@ -149,16 +149,14 @@ void Recorder::recordFrames()
       return;
     }
 
-    fmt::print("Got {} frames\n", nFrames);
-
     // TODO: this shouts "vectorize me"
     for (long i = 0; i < nFrames * _channels; ++i) {
-       // _sampleBytes * 8 bits to 32
+       // _sampleBytes * 8 bits to 32, assuming LE native
       _convBuf[i] = 0;
       memcpy(&_convBuf[i], &_readBuf[i * _storageBytes], _sampleBytes);
     }
 
-    // Let’s note that for FLAC a sample is an Alsa frame .
+    // Let’s note that for FLAC a sample is an Alsa frame.
     FLAC__stream_encoder_process_interleaved(
         _enc.get(), _convBuf.data(), nFrames);
   }
