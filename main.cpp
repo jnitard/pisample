@@ -32,24 +32,25 @@ private:
     cout << "Note " << (n.OnOff ? "on" : "off")
          << ", channel: " << (int)n.Channel
          << ", note: " << (int)n.Note
-         << ", velocity: " << (int)n.Velocity;
+         << ", velocity: " << (int)n.Velocity
+         << "\n";
   }
+
   void event(Control c) override
   {
     switch (static_cast<Buttons>(c.Param)) {
       case Buttons::Record:
-        if (c.Value == 0x7f) {
+        if (c.Value == 0x00) {
           _recorder.toggle();
         }
         break;
       default:
         cout << "Control: "
-             << ", channel: 0"
-             << ", param: " << (int)c.Param
+             << ", channel: 0" // TODO : for now always 0, most likely need
+             << ", param: " << (int)c.Param // something not an ATOM
              << ", value: " << (int)c.Value;
         break;
     }
-
   }
 
   Recorder& _recorder;
@@ -59,6 +60,8 @@ private:
 int main(int argc, const char* const* argv)
 {
   const char* devicePortName = nullptr;
+  const char* recordCard = nullptr;
+
   for (int i = 1; i < argc; ++i) {
     if (argv[i] == "--port"s) {
       if (devicePortName != nullptr) {
@@ -71,6 +74,17 @@ int main(int argc, const char* const* argv)
       }
       devicePortName = argv[i + 1];
     }
+    else if (argv[i] == "--record"s) {
+      if (recordCard != nullptr) {
+        cerr << "--record given several times\n";
+        return EXIT_FAILURE;
+      }
+      if (i + 1 >= argc) {
+        cerr << "--record given no values\n";
+        return EXIT_FAILURE;
+      }
+      recordCard = argv[i + 1];
+    }
   }
 
   if (devicePortName == nullptr) {
@@ -78,22 +92,25 @@ int main(int argc, const char* const* argv)
     return EXIT_FAILURE;
   }
 
+  if (recordCard == nullptr) {
+    cerr << "--record is required\n";
+    return EXIT_FAILURE;
+  }
+
   Device device(devicePortName);
   Pads pads(device);
-  Recorder recorder(device, nullptr, nullptr);
-  
+  Recorder recorder(device, recordCard, nullptr);
   PiSample piSample(recorder);
 
   device.setSynth(piSample);
 
-
   while (true) {
     if (not device.poll()) {
       pads.poll();
-      this_thread::sleep_for(c::microseconds(100));
+      recorder.poll();
+      this_thread::sleep_for(c::microseconds(500));
     }
   }
 
   return EXIT_SUCCESS;
 }
-

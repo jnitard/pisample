@@ -12,6 +12,7 @@ CXX=arm-linux-gnueabihf-g++.exe
 # - alsa
 # - wxwidgets
 # - fmt
+# - flac (C APIs only)
 # The includes must be in their own folder per project (say fmt/format.h).
 # The libraries must all be in the "lib" subfolder.
 ROOT=../pi
@@ -24,10 +25,8 @@ CXXFLAGS+=-I$(ROOT)
 LFLAGS+=-L$(ROOT)\\lib
 # WXWidgets, got from wx-config --cxxflags
 CXXFLAGS+= -D_FILE_OFFSET_BITS=64 -DWXUSINGDLL -D__WXGTK__ -pthread
-# Alsa
-LFLAGS += -lasound
-# FMT
-LFLAGS += -lfmt
+# others
+LFLAGS += -lasound -lfmt -lFLAC
 #### --------- ####
 
 BIN = pisample
@@ -79,11 +78,18 @@ sync: $(BIN)
 	@scp $(BIN) *.cpp *.h $(PI):pisample/ 1>/dev/null 2>/dev/null
 	@echo "Synch’ed files"
 
-run: sync
-	@ssh -t $(PI) "bash -c '~/pisample/pisample --port 24'"
+ARGS = --port    \
+				24       \
+				--record \
+				pulse
 
-debug: $(BIN)
-	@ssh -t $(PI) "bash -c 'cd pisample && gdb --args ~/pisample/pisample --port 24'"
+run: sync
+	@echo $(ARGS)
+	@ssh -t $(PI) "bash -c '~/pisample/pisample ${ARGS}'"
+
+debug: sync
+	@echo $(ARGS)
+	@ssh -t $(PI) "bash -c 'cd pisample && gdb --args ~/pisample/pisample ${ARGS}'"
 
 clean:
 	rm -rf $(BIN)

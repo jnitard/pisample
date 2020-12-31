@@ -3,9 +3,24 @@
 /// \file Some helpers for ALSA.
 
 #include <alsa/seq_event.h>
+#include <alsa/error.h>
 
-namespace alsa
+#include "fmt.h"
+
+namespace ps
 {
+  struct AlsaErr
+  {
+    int Err;
+  };
+
+  template <class OStream>
+  OStream& operator<<(OStream& out, AlsaErr err)
+  {
+    out << snd_strerror(err.Err);
+    return out;
+  }
+
   /// Turn an event into string, mostly useful for debugging.
   constexpr const char* eventToString(snd_seq_event_type_t event)
   {

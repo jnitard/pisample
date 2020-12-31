@@ -98,10 +98,10 @@ namespace atom
   enum class Buttons : uint8_t
   {
     // Left column
+    Nudge = 30,
     Setup = 86,
     SetLoop = 85,
     Editor = 31,
-    Nudge = 30,
     ShowHide = 29,
     Preset = 27,
     Bank = 26,
@@ -125,6 +125,38 @@ namespace atom
   inline Control switchButton(Buttons b, bool on)
   {
     return Control{ .Param = uint8_t(b), .Value = uint8_t(on ? 0x7F : 0x00) };
+  }
+
+  template <class Func>
+  void forAllButtons(Func&& f)
+  {
+    for (uint8_t b = 0; b < 127; ++b) {
+      auto button = static_cast<Buttons>(b);
+      switch (button) {
+        case Buttons::Nudge:
+        case Buttons::Setup:
+        case Buttons::SetLoop:
+        case Buttons::Editor:
+        case Buttons::ShowHide:
+        case Buttons::Preset:
+        case Buttons::FullLevel:
+        case Buttons::NoteRepeat:
+        case Buttons::Shift:
+        case Buttons::Up:
+        case Buttons::Down:
+        case Buttons::Left:
+        case Buttons::Right:
+        case Buttons::Select:
+        case Buttons::Zoom:
+        case Buttons::Click:
+        case Buttons::Record:
+        case Buttons::Play:
+        case Buttons::Stop:
+          std::forward<Func>(f)(button);
+        default:
+          break;
+      }
+    }
   }
 
   /// type 'controller', channel 0, values 1 for left or 65 for right

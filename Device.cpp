@@ -77,6 +77,8 @@ Device::Device(const char* devicePortName)
 
   sendNotes(atom::initSequence());
 
+  forAllButtons([this](Buttons b) { sendControl(Control{ (uint8_t)b, 0x00 }); });
+
   _nfds = snd_seq_poll_descriptors_count(_seq, POLLIN);
   _fds = make_unique<pollfd[]>(_nfds);
 
@@ -127,6 +129,7 @@ void Device::sendControl(Control c)
   ctl.data.control.channel = 0;
   ctl.data.control.param = c.Param;
   ctl.data.control.value = c.Value;
+
   int err = snd_seq_event_output_direct(_seq, &ctl);
   if (err < 0) {
     throw DeviceInitError("Failed to send control to device: {}", err);
@@ -159,7 +162,7 @@ bool Device::poll()
     auto printType = [&] {
       cout << "Source: " << (int) event->source.client << ":"
            << (int) event->source.port
-           << ", type: " << alsa::eventToString(event->type);
+           << ", type: " << eventToString(event->type);
     };
 
     switch (event->type) {
