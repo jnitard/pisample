@@ -66,6 +66,7 @@
 		"C_Cpp.default.includePath":[
 			"${env:USERPROFILE}\\Desktop\\pi"
 		],
-		"editor.tabSize": 2
+		"editor.tabSize": 2,
+		"files.eol": "\n"
 	}
 }

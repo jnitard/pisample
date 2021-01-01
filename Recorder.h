@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Device.h"
+#include "Alsa.h"
 
 #include <alsa/asoundlib.h>
 #include <FLAC/stream_encoder.h>
@@ -21,6 +22,7 @@ namespace ps
       }
     }
   };
+  using FlacPtr = std::unique_ptr<FLAC__StreamEncoder, FlacDeleter>;
 
 
   /// Only really supporting 2 or 3 bytes per samples right now (16 or 24 bits).
@@ -33,7 +35,6 @@ namespace ps
     return sampleBytes;
   };
 
-  using FlacPtr = std::unique_ptr<FLAC__StreamEncoder, FlacDeleter>;
 
   /// This is meant to record a full DJ set to disk rather than a sample.
   class Recorder
@@ -69,7 +70,7 @@ namespace ps
     static constexpr int _storageBytes = storageBytes(_sampleBytes);
 
     // **** these variables should only be accessed in the rec thread ****
-    snd_pcm_t* _in = nullptr;
+    PcmPtr _in;
     FlacPtr _enc;
     std::array<uint8_t, _rate * _channels * _storageBytes> _readBuf = {};
     // flac always take int32_t i.e. signed 32 bit values

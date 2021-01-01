@@ -27,7 +27,7 @@ Recorder::Recorder(Device& d, const char* interface, const char* /* file */)
   : _device(d)
   , _interface(interface)
 {
-  _thread = std::thread([this]{ run(); });
+  _thread = thread([this]{ run(); });
 }
 
 Recorder::~Recorder()
@@ -85,11 +85,13 @@ void Recorder::startRecording()
   }
 
   // Setup ALSA
-  int err = snd_pcm_open(&_in, _interface.c_str(), SND_PCM_STREAM_CAPTURE, 0);
+  snd_pcm_t* in = nullptr;
+  int err = snd_pcm_open(&in, _interface.c_str(), SND_PCM_STREAM_CAPTURE, 0);
   if (err < 0) {
     throw FormattedException("Could not open recording device {} : {}",
         _interface, AlsaErr{err});
   }
+  _in.reset(in);
 
   auto formatByBytes = [](int bytes){
     switch (bytes) {
@@ -104,7 +106,7 @@ void Recorder::startRecording()
   };
 
   err = snd_pcm_set_params(
-      _in,
+      _in.get(),
       formatByBytes(_sampleBytes),
       SND_PCM_ACCESS_RW_INTERLEAVED,
       _channels,
@@ -123,8 +125,7 @@ void Recorder::stopRecording()
 {
   FLAC__stream_encoder_finish(_enc.get());
   _enc.reset();
-  snd_pcm_drop(_in);
-  snd_pcm_close(_in);
+  _in.reset();
   fmt::print("Stopped recording (errors: {})\n", _readErrors);
   _readErrors = 0;
 }
@@ -132,7 +133,7 @@ void Recorder::stopRecording()
 void Recorder::recordFrames()
 {
   // blocking while buffer is not full, typically using 1s buffer size
-  auto nFrames = snd_pcm_readi(_in, _readBuf.data(),
+  auto nFrames = snd_pcm_readi(_in.get(), _readBuf.data(),
       _readBuf.size() / _channels / _storageBytes);
   
   if (nFrames < 0) {
@@ -141,7 +142,7 @@ void Recorder::recordFrames()
           snd_strerror(nFrames), nFrames);
     }
     ++_readErrors;
-    snd_pcm_recover(_in, nFrames, true /*silent*/);
+    snd_pcm_recover(_in.get(), nFrames, true /*silent*/);
   }
   else {
     if (nFrames == 0) {

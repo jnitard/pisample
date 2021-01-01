@@ -1,8 +1,18 @@
 
+# This avoids garbled GCC output but prevents running an interactive
+# command efficiently :(
+ifeq ($(filter run debug,$(MAKECMDGOALS)), )
+MAKEFLAGS=-Oline
+endif
+
+MAKEFLAGS+=-j
 
 CXXFLAGS+=-O3 -g
 CXXFLAGS+=-std=c++17 -Wall -Werror -Wextra
 CXXFLAGS+=-fdiagnostics-color=always
+# We compile everything with a recent enough GCC hopefully ...
+# wxwidgets is the only C++ dependency.
+CXXFLAGS+=-Wno-psabi
 
 
 #### Cross compilation stuff ####
@@ -63,16 +73,21 @@ $(BIN):
 	$(CXX) $(CXXFLAGS) $(CFLAGS)  -o $(BIN) $(PATHOBJ) $(LFLAGS)
 
 
+# ---- run ----
+
 # run on the PI from the host via `make run`
 # need SSH keys in the proper places
 ifndef PI_IP
-PI_HOST:=raspberrypi.local
+ifneq ($(filter sync run debug,$(MAKECMDGOALS)), )
+PI_HOST?=raspberrypi.local
 PI_IP:=$(shell dig $(PI_HOST) A +noall +answer | sed -r 's/.*A[ \t]*(.*)/\1/')
 endif
+endif
+
 PI:=pi@$(PI_IP)
 
-
 .PHONY: sync run debug clean
+
 sync: $(BIN)
 	@echo "Connecting to ${PI}"
 	@scp $(BIN) *.cpp *.h $(PI):pisample/ 1>/dev/null 2>/dev/null
@@ -90,6 +105,8 @@ run: sync
 debug: sync
 	@echo $(ARGS)
 	@ssh -t $(PI) "bash -c 'cd pisample && gdb --args ~/pisample/pisample ${ARGS}'"
+
+# ---- /run ---
 
 clean:
 	rm -rf $(BIN)

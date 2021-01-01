@@ -82,14 +82,21 @@ Device::Device(const char* devicePortName)
   _nfds = snd_seq_poll_descriptors_count(_seq, POLLIN);
   _fds = make_unique<pollfd[]>(_nfds);
 
-  // TODO: drain input queue before doing anything - that will avoid widly unrelated
-  // key presses
-
-  // TODO: pollin only ?
-
   // TODO: may need to be moved inside the loop in case we change it
   // dynamically ?
   snd_seq_poll_descriptors(_seq, _fds.get(), _nfds, POLLIN);
+
+  // Drain any input sent before we started.
+  while (true) {
+    int nActive = ::poll(_fds.get(), _nfds, 0);
+    if (nActive > 0) {
+      snd_seq_event_t* event = nullptr;
+      snd_seq_event_input(_seq, &event);
+    }
+    else {
+      break;
+    }
+  }
 }
 
 Device::~Device()

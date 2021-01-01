@@ -7,12 +7,25 @@
 
 #include "fmt.h"
 
+#include <memory>
+
 namespace ps
 {
   struct AlsaErr
   {
     int Err;
   };
+
+  struct PcmDeleter
+  {
+    void operator()(snd_pcm_t* ptr) const
+    {
+      snd_pcm_drop(ptr);
+      snd_pcm_close(ptr);
+    }
+  };
+
+  using PcmPtr = std::unique_ptr<snd_pcm_t, PcmDeleter>;
 
   template <class OStream>
   OStream& operator<<(OStream& out, AlsaErr err)
