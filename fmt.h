@@ -8,11 +8,11 @@
 
 namespace ps
 {
-  class FormattedException : public std::exception
+  class Exception : public std::exception
   {
   public:
     template <class ... Args>
-    FormattedException(const char* format, Args&& ... args)
+    Exception(const char* format, Args&& ... args)
       : _what(fmt::format(format, std::forward<Args>(args)...))
     { }
 

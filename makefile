@@ -8,7 +8,8 @@ endif
 MAKEFLAGS+=-j
 
 CXXFLAGS+=-O3 -g
-CXXFLAGS+=-std=c++17 -Wall -Werror -Wextra
+# Cross-compiler I found is too old for c++20.
+CXXFLAGS+=-std=c++2a -Wall -Werror -Wextra
 CXXFLAGS+=-fdiagnostics-color=always
 # We compile everything with a recent enough GCC hopefully ...
 # wxwidgets is the only C++ dependency.
@@ -93,10 +94,7 @@ sync: $(BIN)
 	@scp $(BIN) *.cpp *.h $(PI):pisample/ 1>/dev/null 2>/dev/null
 	@echo "Synch’ed files"
 
-ARGS = --port    \
-				24       \
-				--record \
-				pulse
+ARGS = --midi-in-port 28
 
 run: sync
 	@echo $(ARGS)

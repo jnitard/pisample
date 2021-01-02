@@ -32,6 +32,9 @@ Recorder::Recorder(Device& d, const char* interface, const char* /* file */)
 
 Recorder::~Recorder()
 {
+  if (_on) {
+    stopRecording();
+  }
   _stop = true;
   if (_thread.joinable()) {
     _thread.join();
@@ -70,7 +73,7 @@ void Recorder::startRecording()
   // Setup FLAC
   auto fileName = filenameForTime(c::system_clock::now());
   _enc.reset(FLAC__stream_encoder_new());
-  FLAC__stream_encoder_set_channels(_enc.get(), _channels);
+  FLAC__stream_encoder_set_channels(_enc.get(), 2); // TODO
   FLAC__stream_encoder_set_bits_per_sample(_enc.get(), _sampleBytes * 8);
   FLAC__stream_encoder_set_sample_rate(_enc.get(), _rate);
   auto res = FLAC__stream_encoder_init_file(
@@ -80,15 +83,14 @@ void Recorder::startRecording()
       nullptr
   );
   if (res != FLAC__STREAM_ENCODER_INIT_STATUS_OK) {
-    throw FormattedException("Could not initialize FLAC encoder ({})",
-        (int)res);
+    throw Exception("Could not initialize FLAC encoder ({})", (int)res);
   }
 
   // Setup ALSA
   snd_pcm_t* in = nullptr;
   int err = snd_pcm_open(&in, _interface.c_str(), SND_PCM_STREAM_CAPTURE, 0);
   if (err < 0) {
-    throw FormattedException("Could not open recording device {} : {}",
+    throw Exception("Could not open recording device {} : {}",
         _interface, AlsaErr{err});
   }
   _in.reset(in);
@@ -100,7 +102,7 @@ void Recorder::startRecording()
       case 3:
         return SND_PCM_FORMAT_S24_LE;
       default:
-        throw invalid_argument("FLAC only support native (i.e. little endian "
+        throw Exception("FLAC only support native (i.e. little endian "
           "on raspberry pi), with 16 or 32 bit per sample") ;
     }
   };
@@ -114,11 +116,12 @@ void Recorder::startRecording()
       1 /* soft re-sample */,
       0 /* latency */);
   if (err < 0) {
-    throw FormattedException("Failed to set recording parameters {}",
+    throw Exception("Failed to set recording parameters {}",
         AlsaErr{err});
   }
 
   fmt::print("Starting to record to {}\n", fileName);
+  cout.flush();
 }
 
 void Recorder::stopRecording()
@@ -127,6 +130,7 @@ void Recorder::stopRecording()
   _enc.reset();
   _in.reset();
   fmt::print("Stopped recording (errors: {})\n", _readErrors);
+  cout.flush();
   _readErrors = 0;
 }
 
@@ -151,10 +155,18 @@ void Recorder::recordFrames()
     }
 
     // TODO: this shouts "vectorize me"
-    for (long i = 0; i < nFrames * _channels; ++i) {
-       // _sampleBytes * 8 bits to 32, assuming LE native
-      _convBuf[i] = 0;
-      memcpy(&_convBuf[i], &_readBuf[i * _storageBytes], _sampleBytes);
+    for (long i = 0; i < nFrames; ++i) {
+      for (long j = 0; j < 2; ++ j) {
+        // _sampleBytes * 8 bits to 32, assuming LE native
+        _convBuf[i * 2 + j] = 0;
+        memcpy(
+          &_convBuf[i * 2 + j],
+          &_readBuf[
+            i * _storageBytes * _channels + 
+            (j+8) * _storageBytes
+          ],
+          _sampleBytes);
+      }
     }
 
     // Let’s note that for FLAC a sample is an Alsa frame.

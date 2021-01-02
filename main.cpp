@@ -3,6 +3,9 @@
 #include <memory>
 #include <chrono>
 #include <thread>
+#include <csignal>
+#include <optional>
+#include <unordered_map>
 
 #include <alsa/asoundlib.h>
 // #include <wx/wx.h>
@@ -46,7 +49,7 @@ private:
         break;
       default:
         cout << "Control: "
-             << ", channel: 0" // TODO : for now always 0, most likely need
+             << ", channel: 0" // TODO : for now always 0, most likely need
              << ", param: " << (int)c.Param // something not an ATOM
              << ", value: " << (int)c.Value;
         break;
@@ -57,35 +60,144 @@ private:
 };
 
 
-int main(int argc, const char* const* argv)
+atomic<bool> goOn = true;
+atomic<bool> firstSig = true;
+void signalHandler(int)
 {
-  const char* devicePortName = nullptr;
-  const char* recordCard = nullptr;
+  if (not firstSig) {
+    terminate();
+  }
+  firstSig = true;
+  cerr << "Got signal, stopping\n";
+  goOn = false;
+}
 
-  for (int i = 1; i < argc; ++i) {
-    if (argv[i] == "--port"s) {
-      if (devicePortName != nullptr) {
-        cerr << "--port given several times\n";
-        return EXIT_FAILURE;
+void setupSignals()
+{
+  struct sigaction action;
+  action.sa_handler = &signalHandler;
+  action.sa_mask = sigset_t{};
+  action.sa_flags = 0;
+  action.sa_restorer = nullptr;
+  sigaction(SIGINT, &action, nullptr);
+  sigaction(SIGSTOP, &action, nullptr);
+  sigaction(SIGKILL, &action, nullptr);
+  sigaction(SIGHUP, &action, nullptr);
+  sigaction(SIGABRT, &action, nullptr);
+}
+
+struct Argument
+{
+  string Doc;
+  optional<string> Value;
+  bool Flag = false;
+  bool Given = false;
+};
+
+void printHelp(const unordered_map<string, Argument>& args)
+{
+  for (auto& [name, arg]: args) {
+    fmt::print("--{} [{}] -- {}\n", name, arg.Value.value_or("required"), arg.Doc);
+  }
+  cout.flush();
+  exit(EXIT_FAILURE);
+}
+
+void readArguments(
+    unordered_map<string, Argument>& args,
+    int argc, const char* const* argv)
+{
+  int i = 0; // modified if we find a value.
+  while (++i, i < argc) {
+    bool isArg = string(argv[i]).substr(0, 2) == "--";
+    if (!isArg) {
+      if (i == 1) {
+        throw Exception("Expecting --arg");
       }
-      if (i + 1 >= argc) {
-        cerr << "--port given no values\n";
-        return EXIT_FAILURE;
-      }
-      devicePortName = argv[i + 1];
+      continue;
     }
-    else if (argv[i] == "--record"s) {
-      if (recordCard != nullptr) {
-        cerr << "--record given several times\n";
-        return EXIT_FAILURE;
+
+    auto argName = string(argv[i]).substr(2);
+
+    auto it = args.find(argName);
+    if (it == end(args)) {
+      if (argName == "help") {
+        printHelp(args);
+        __builtin_unreachable();
       }
-      if (i + 1 >= argc) {
-        cerr << "--record given no values\n";
-        return EXIT_FAILURE;
+      throw Exception("Unknown argument: {}", argName);
+    }
+
+    auto& arg = it->second;
+    if (arg.Given) {
+      throw Exception("{} was given twice", it->first);
+    }
+    arg.Given = true;
+
+    if (i+1 < argc) {
+      bool nextIsArg = string(argv[i+1]).substr(0, 2) == "--";
+      if (arg.Flag) {
+        if (nextIsArg) {
+          throw Exception("{} is a flag but wass given a value ({})",
+            it->first, argv[i+1]);
+        }
+        else {
+          arg.Value = "true";
+        }
       }
-      recordCard = argv[i + 1];
+      else { // not a flag, needs a value
+        if (! nextIsArg) {
+          arg.Value = argv[i+1];
+          ++i;
+        }
+        else {
+          throw Exception("{} expects a value but none given", it->first);
+        }
+      }
     }
   }
+
+  for (auto& [name, arg]: args) {
+    if (arg.Value == nullopt) {
+      throw Exception("No value given for {} and no default exists", name);
+    }
+  }
+}
+
+
+int main(int argc, const char* const* argv)
+try {
+  setupSignals();
+
+  unordered_map<string, Argument> args = {
+    // { "config"s, {
+    //   .Doc = "A config file with further options in it.",
+    //   .Value = "",
+    // } },
+    { "midi-in-port"s, {
+      .Doc = "The midi port for the ATOM device (i.e. 24)",
+      .Value = nullopt,
+    } },
+    { "audio-in-card"s, {
+      .Doc = "The card to record from",
+      .Value = "pulse",
+    } },
+    { "audio-in-channels"s, {
+      .Doc = "Select channels for recording",
+      .Value = "",
+    } },
+    { "record"s, {
+      .Doc = "Start recording on startup. Meant for testing mainly.",
+      .Value = "false",
+      .Flag = true,
+    } }
+  };
+
+  readArguments(args, argc, argv);
+
+  const char* devicePortName = args["midi-in-port"].Value->c_str();
+  const char* recordCard = args["audio-in-card"].Value->c_str();
+  bool recordOnStart = false;
 
   if (devicePortName == nullptr) {
     cerr << "--port is required\n";
@@ -93,7 +205,7 @@ int main(int argc, const char* const* argv)
   }
 
   if (recordCard == nullptr) {
-    cerr << "--record is required\n";
+    cerr << "--input is required\n";
     return EXIT_FAILURE;
   }
 
@@ -104,7 +216,11 @@ int main(int argc, const char* const* argv)
 
   device.setSynth(piSample);
 
-  while (true) {
+  if (recordOnStart) {
+    recorder.toggle();
+  }
+
+  while (goOn) {
     if (not device.poll()) {
       pads.poll();
       recorder.poll();
@@ -113,4 +229,8 @@ int main(int argc, const char* const* argv)
   }
 
   return EXIT_SUCCESS;
+}
+catch (const exception& ex) {
+  cerr << ex.what() << '\n';
+  return EXIT_FAILURE;
 }

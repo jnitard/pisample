@@ -18,17 +18,17 @@ namespace ps
   void convertNote(atom::Note, snd_seq_ev_note& out);
 
   /// Helper for erroring out fast.
-  class DeviceInitError : public FormattedException
+  class DeviceInitError : public Exception
   {
   public:
-    using FormattedException::FormattedException;
+    using Exception::Exception;
   };
 
   /// Something went wrong while polling or sending.
-  class DeviceFailure : public FormattedException
+  class DeviceFailure : public Exception
   {
   public:
-    using FormattedException::FormattedException;
+    using Exception::Exception;
   };
 
   void convertNote(atom::Note note, snd_seq_event& out);
