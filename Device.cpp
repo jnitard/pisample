@@ -19,6 +19,33 @@ namespace
   {
     return type == SND_SEQ_EVENT_NOTEON;
   }
+
+  snd_seq_addr_t findPort(snd_seq_t& seq, const string& portName)
+  {
+    snd_seq_client_info_t* cinfo = nullptr;
+    snd_seq_client_info_alloca(&cinfo);
+
+    snd_seq_port_info_t* pinfo = nullptr;
+    snd_seq_port_info_alloca(&pinfo);
+
+    snd_seq_client_info_set_client(cinfo, -1);
+    while (snd_seq_query_next_client(&seq, cinfo) >= 0) {
+      int client = snd_seq_client_info_get_client(cinfo);
+
+      snd_seq_port_info_set_client(pinfo, client);
+      snd_seq_port_info_set_port(pinfo, -1);
+      while (snd_seq_query_next_port(&seq, pinfo) >= 0) {
+        if (snd_seq_port_info_get_name(pinfo) == portName) {
+          return snd_seq_addr_t{
+            (uint8_t)snd_seq_port_info_get_client(pinfo),
+            (uint8_t)snd_seq_port_info_get_port(pinfo)
+          };
+        }
+      }
+    }
+
+    throw Exception("Could not find midi port {}", portName);
+  }
 }
 
 void ps::convertNote(atom::Note note, snd_seq_event& out)
@@ -55,11 +82,7 @@ Device::Device(const char* devicePortName)
   _hostPort = err;
   cerr << "Our port: [app]: " << _hostPort << '\n';
 
-  err = snd_seq_parse_address(_seq, &_deviceAddress, devicePortName);
-  if (err < 0) {
-    throw DeviceInitError("Failed to understand meaning of '{}'", devicePortName);
-  }
-
+  _deviceAddress = findPort(*_seq, devicePortName);
   err = snd_seq_connect_from(_seq, _hostPort,
       _deviceAddress.client, _deviceAddress.port);
   if (err < 0) {
@@ -71,12 +94,8 @@ Device::Device(const char* devicePortName)
   if (err < 0) {
     throw DeviceInitError("Failed to connect to output '{},", devicePortName);
   }
-  cerr << "Connected to device port: "
-       << (int)_deviceAddress.client << ":" << (int)_deviceAddress.port << "\n";
-
 
   sendNotes(atom::initSequence());
-
   forAllButtons([this](Buttons b) { sendControl(Control{ (uint8_t)b, 0x00 }); });
 
   _nfds = snd_seq_poll_descriptors_count(_seq, POLLIN);
@@ -97,6 +116,11 @@ Device::Device(const char* devicePortName)
       break;
     }
   }
+
+  fmt::print("Connected to device:port : {}:{} ({})",
+       (int)_deviceAddress.client,
+       (int)_deviceAddress.port,
+       devicePortName);
 }
 
 Device::~Device()

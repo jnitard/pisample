@@ -94,15 +94,16 @@ sync: $(BIN)
 	@scp $(BIN) *.cpp *.h $(PI):pisample/ 1>/dev/null 2>/dev/null
 	@echo "Synch’ed files"
 
-ARGS = --midi-in-port 28
+ARGS = --midi-in-port \"ATOM MIDI 1\"
 
 run: sync
-	@echo $(ARGS)
+	$(info ${ARGS})
+	@echo ssh -t $(PI) "bash -c '~/pisample/pisample ${ARGS}'"
 	@ssh -t $(PI) "bash -c '~/pisample/pisample ${ARGS}'"
 
 debug: sync
-	@echo $(ARGS)
-	@ssh -t $(PI) "bash -c 'cd pisample && gdb --args ~/pisample/pisample ${ARGS}'"
+	@echo ssh -t $(PI) bash -c 'cd pisample && gdb --args ~/pisample/pisample ${ARGS}'
+	@ssh -t $(PI) bash -c 'cd pisample && gdb --args ~/pisample/pisample ${ARGS}'
 
 # ---- /run ---
 

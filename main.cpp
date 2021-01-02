@@ -97,7 +97,13 @@ struct Argument
 void printHelp(const unordered_map<string, Argument>& args)
 {
   for (auto& [name, arg]: args) {
-    fmt::print("--{} [{}] -- {}\n", name, arg.Value.value_or("required"), arg.Doc);
+    if (arg.Flag) {
+      fmt::print("--{} -- {}\n", name, arg.Doc);
+    }
+    else {
+      fmt::print("--{} [{}] -- {}\n", name,
+          arg.Value.value_or("required"), arg.Doc);
+    }
   }
   cout.flush();
   exit(EXIT_FAILURE);
@@ -109,6 +115,11 @@ void readArguments(
 {
   int i = 0; // modified if we find a value.
   while (++i, i < argc) {
+    if (argv[i] == "--help"s || argv[i] == "-h"s) {
+        printHelp(args);
+        __builtin_unreachable();
+    }
+
     bool isArg = string(argv[i]).substr(0, 2) == "--";
     if (!isArg) {
       if (i == 1) {
@@ -118,13 +129,8 @@ void readArguments(
     }
 
     auto argName = string(argv[i]).substr(2);
-
     auto it = args.find(argName);
     if (it == end(args)) {
-      if (argName == "help") {
-        printHelp(args);
-        __builtin_unreachable();
-      }
       throw Exception("Unknown argument: {}", argName);
     }
 
@@ -155,6 +161,9 @@ void readArguments(
         }
       }
     }
+    else if (not arg.Flag) {
+      throw Exception("{} expects a value but none given", it->first);
+    }
   }
 
   for (auto& [name, arg]: args) {
@@ -175,7 +184,7 @@ try {
     //   .Value = "",
     // } },
     { "midi-in-port"s, {
-      .Doc = "The midi port for the ATOM device (i.e. 24)",
+      .Doc = "The midi port for the ATOM device (eg 'ATOM MIDI 1')",
       .Value = nullopt,
     } },
     { "audio-in-card"s, {
