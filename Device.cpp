@@ -117,7 +117,7 @@ Device::Device(const char* devicePortName)
     }
   }
 
-  fmt::print("Connected to device:port : {}:{} ({})",
+  fmt::print("Connected to device:port : {}:{} ({})\n",
        (int)_deviceAddress.client,
        (int)_deviceAddress.port,
        devicePortName);
@@ -125,6 +125,8 @@ Device::Device(const char* devicePortName)
 
 Device::~Device()
 {
+  forAllPads([this](Pad p){ sendNotes( changePadMode(p, PadMode::Off) ); });
+  forAllButtons([this](Buttons b) { sendControl(Control{ (uint8_t)b, 0x00 }); });
   snd_seq_close(_seq);
 }
 

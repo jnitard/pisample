@@ -32,12 +32,13 @@ Recorder::Recorder(Device& d, const char* interface, const char* /* file */)
 
 Recorder::~Recorder()
 {
-  if (_on) {
-    stopRecording();
-  }
   _stop = true;
   if (_thread.joinable()) {
     _thread.join();
+  }
+
+  if (_on) {
+    stopRecording();
   }
 }
 
@@ -73,8 +74,12 @@ void Recorder::startRecording()
   // Setup FLAC
   auto fileName = filenameForTime(c::system_clock::now());
   _enc.reset(FLAC__stream_encoder_new());
-  FLAC__stream_encoder_set_channels(_enc.get(), 2); // TODO
-  FLAC__stream_encoder_set_bits_per_sample(_enc.get(), _sampleBytes * 8);
+  // we are receiving N channels but always keep 2
+  FLAC__stream_encoder_set_channels(_enc.get(), 2);
+  // We may get more data in and convert down to 24 bit
+  FLAC__stream_encoder_set_bits_per_sample(
+      _enc.get(),
+      min(3, _sampleBytes) * 8);
   FLAC__stream_encoder_set_sample_rate(_enc.get(), _rate);
   auto res = FLAC__stream_encoder_init_file(
       _enc.get(),
@@ -101,11 +106,30 @@ void Recorder::startRecording()
         return SND_PCM_FORMAT_S16_LE;
       case 3:
         return SND_PCM_FORMAT_S24_LE;
+      case 4:
+        return SND_PCM_FORMAT_S32_LE;
       default:
         throw Exception("FLAC only support native (i.e. little endian "
           "on raspberry pi), with 16 or 32 bit per sample") ;
     }
   };
+
+  // {
+  //   cout << "chmaps" << endl;
+  //   auto chmaps_init = snd_pcm_query_chmaps(_in.get());
+  //   auto chmaps = chmaps_init;
+  //   while (chmaps != nullptr and *chmaps != nullptr) {
+  //     fmt::print("{}, {}\n", (*chmaps)->map.channels, (int)(*chmaps)->type);
+  //     ++chmaps;
+  //   }
+  //   snd_pcm_free_chmaps(chmaps_init);
+  // }
+
+  err = snd_pcm_nonblock(_in.get(), true);
+  if (err < 0) {
+    throw Exception("Failed to set non-blocking mode on recording device",
+        AlsaErr{err});
+  }
 
   err = snd_pcm_set_params(
       _in.get(),
@@ -121,7 +145,6 @@ void Recorder::startRecording()
   }
 
   fmt::print("Starting to record to {}\n", fileName);
-  cout.flush();
 }
 
 void Recorder::stopRecording()
@@ -130,7 +153,6 @@ void Recorder::stopRecording()
   _enc.reset();
   _in.reset();
   fmt::print("Stopped recording (errors: {})\n", _readErrors);
-  cout.flush();
   _readErrors = 0;
 }
 
@@ -141,12 +163,16 @@ void Recorder::recordFrames()
       _readBuf.size() / _channels / _storageBytes);
   
   if (nFrames < 0) {
+    if (-nFrames == EAGAIN) {
+      this_thread::sleep_for(c::milliseconds(1));
+      return;
+    }
     if (_readErrors == 0) {
       fmt::print("Recorder : Read error: {} ({})\n",
           snd_strerror(nFrames), nFrames);
     }
     ++_readErrors;
-    snd_pcm_recover(_in.get(), nFrames, true /*silent*/);
+    snd_pcm_recover(_in.get(), nFrames, false /*silent*/);
   }
   else {
     if (nFrames == 0) {
@@ -161,7 +187,7 @@ void Recorder::recordFrames()
         _convBuf[i * 2 + j] = 0;
         memcpy(
           &_convBuf[i * 2 + j],
-          &_readBuf[
+          &_readBuf[ // TODO: need to convert 32->24 at times
             i * _storageBytes * _channels + 
             (j+8) * _storageBytes
           ],

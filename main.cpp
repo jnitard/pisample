@@ -5,6 +5,7 @@
 #include <thread>
 #include <csignal>
 #include <optional>
+#include <sstream>
 #include <unordered_map>
 
 #include <alsa/asoundlib.h>
@@ -21,43 +22,6 @@ using namespace atom;
 using namespace std;
 namespace c = std::chrono;
 using namespace std::string_literals;
-
-
-class PiSample : public Synth
-{
-public:
-  PiSample(Recorder& recorder) : _recorder(recorder)
-  { }
-
-private:
-  void event(Note n) override
-  {
-    cout << "Note " << (n.OnOff ? "on" : "off")
-         << ", channel: " << (int)n.Channel
-         << ", note: " << (int)n.Note
-         << ", velocity: " << (int)n.Velocity
-         << "\n";
-  }
-
-  void event(Control c) override
-  {
-    switch (static_cast<Buttons>(c.Param)) {
-      case Buttons::Record:
-        if (c.Value == 0x00) {
-          _recorder.toggle();
-        }
-        break;
-      default:
-        cout << "Control: "
-             << ", channel: 0" // TODO : for now always 0, most likely need
-             << ", param: " << (int)c.Param // something not an ATOM
-             << ", value: " << (int)c.Value;
-        break;
-    }
-  }
-
-  Recorder& _recorder;
-};
 
 
 atomic<bool> goOn = true;
@@ -85,6 +49,70 @@ void setupSignals()
   sigaction(SIGHUP, &action, nullptr);
   sigaction(SIGABRT, &action, nullptr);
 }
+
+
+class PiSample : public Synth
+{
+public:
+  PiSample(Device& device, Recorder& recorder) :
+      _device(device),
+      _recorder(recorder)
+  { }
+
+  ~PiSample()
+  {
+    _device.sendControl(switchButton(Buttons::Stop, false));
+    _device.sendControl(switchButton(Buttons::Shift, false));
+  }
+
+  bool getShutdown() const { return _willShutdown; }
+
+private:
+  void event(Note n) override
+  {
+    cout << "Note " << (n.OnOff ? "on" : "off")
+         << ", channel: " << (int)n.Channel
+         << ", note: " << (int)n.Note
+         << ", velocity: " << (int)n.Velocity
+         << "\n";
+  }
+
+  void event(Control c) override
+  {
+    switch (static_cast<Buttons>(c.Param)) {
+      case Buttons::Record:
+        if (c.Value == 0x00) {
+          _recorder.toggle();
+        }
+        break;
+      case Buttons::Shift:
+        _shiftPressed = (c.Value != 0);
+        _device.sendControl(switchButton(Buttons::Shift, _shiftPressed));
+        _device.sendControl(switchButton(Buttons::Stop, _shiftPressed));
+        break;
+      case Buttons::Stop:
+        if (_shiftPressed) {
+          goOn = false;
+          _willShutdown = true;
+        }
+        break;
+      default:
+        cout << "Control: "
+             << ", channel: 0" // TODO : for now always 0, most likely need
+             << ", param: " << (int)c.Param // something not an ATOM
+             << ", value: " << (int)c.Value;
+        break;
+    }
+  }
+
+  Device& _device;
+  Recorder& _recorder;
+
+  bool _shiftPressed = false;
+  bool _stopPressed = false;
+  bool _willShutdown = false;
+};
+
 
 struct Argument
 {
@@ -143,7 +171,7 @@ void readArguments(
     if (i+1 < argc) {
       bool nextIsArg = string(argv[i+1]).substr(0, 2) == "--";
       if (arg.Flag) {
-        if (nextIsArg) {
+        if (!nextIsArg) {
           throw Exception("{} is a flag but wass given a value ({})",
             it->first, argv[i+1]);
         }
@@ -161,7 +189,11 @@ void readArguments(
         }
       }
     }
-    else if (not arg.Flag) {
+    // last argument
+    else if (arg.Flag) {
+      arg.Value = "true";
+    }
+    else {
       throw Exception("{} expects a value but none given", it->first);
     }
   }
@@ -206,35 +238,36 @@ try {
 
   const char* devicePortName = args["midi-in-port"].Value->c_str();
   const char* recordCard = args["audio-in-card"].Value->c_str();
-  bool recordOnStart = false;
+  bool recordOnStart;
+  stringstream(args["record"].Value->c_str()) >> boolalpha >> recordOnStart;
 
-  if (devicePortName == nullptr) {
-    cerr << "--port is required\n";
-    return EXIT_FAILURE;
-  }
+  bool shutdown = false;
+  {
+    Device device(devicePortName);
+    Pads pads(device);
+    Recorder recorder(device, recordCard, nullptr);
+    PiSample piSample(device, recorder);
 
-  if (recordCard == nullptr) {
-    cerr << "--input is required\n";
-    return EXIT_FAILURE;
-  }
+    device.setSynth(piSample);
 
-  Device device(devicePortName);
-  Pads pads(device);
-  Recorder recorder(device, recordCard, nullptr);
-  PiSample piSample(recorder);
-
-  device.setSynth(piSample);
-
-  if (recordOnStart) {
-    recorder.toggle();
-  }
-
-  while (goOn) {
-    if (not device.poll()) {
-      pads.poll();
-      recorder.poll();
-      this_thread::sleep_for(c::microseconds(500));
+    if (recordOnStart) {
+      recorder.toggle();
     }
+
+    while (goOn) {
+      if (not device.poll()) {
+        pads.poll();
+        recorder.poll();
+        this_thread::sleep_for(c::microseconds(500));
+      }
+    }
+
+    shutdown = piSample.getShutdown();
+  }
+
+  // Obvioulsy this is really realistic on a PI only.
+  if (shutdown) {
+    system("sudo shutdown now");
   }
 
   return EXIT_SUCCESS;

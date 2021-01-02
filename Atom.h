@@ -72,7 +72,7 @@ namespace atom
 
   enum class PadMode : uint8_t
   {
-    /// Turns the light off
+    /// Turns the light on or off.
     Off     = 0x00,
     On      = 0x7f,
 
@@ -130,7 +130,7 @@ namespace atom
   template <class Func>
   void forAllButtons(Func&& f)
   {
-    for (uint8_t b = 0; b < 127; ++b) {
+    for (uint8_t b = 0; b < 128; ++b) {
       auto button = static_cast<Buttons>(b);
       switch (button) {
         case Buttons::Nudge:
@@ -153,6 +153,7 @@ namespace atom
         case Buttons::Play:
         case Buttons::Stop:
           std::forward<Func>(f)(button);
+          break;
         default:
           break;
       }
@@ -175,12 +176,12 @@ namespace atom
   /// Initialize This is required to be done first and changing button colors.
   inline std::vector<Note> initSequence()
   {
-      return { Note{ 
-        .OnOff = false,
-        .Channel = 0xf,
-        .Note = 0,
-        .Velocity = 0x7F
-      } };
+    return { Note{ 
+      .OnOff = false,
+      .Channel = 0xf,
+      .Note = 0,
+      .Velocity = 0x7F
+    } };
   }
 
   /// Change a pad mode. For anything to show up it must be set to something
@@ -194,7 +195,7 @@ namespace atom
       .OnOff = true,
       .Channel = static_cast<uint8_t>(CommandPrefix::Mode),
       .Note = static_cast<uint8_t>(pad),
-      .Velocity = 0x7f
+      .Velocity = static_cast<uint8_t>(mode)
     } };
   }
 

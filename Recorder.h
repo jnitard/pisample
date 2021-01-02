@@ -59,11 +59,11 @@ namespace ps
     void run();
     std::thread _thread;
 
-    static constexpr int _rate = 44100;
+    static constexpr int _rate = 48000;
     // we don’t need 10 channels, we need channels 8 and 9 :(
     // though not sure how to get just those two with alsa
     static constexpr int _channels = 10;
-    static constexpr int _sampleBytes = 2;
+    static constexpr int _sampleBytes = 3;
     // The code supports using 24 bits i.e. 3 bytes but then each samples
     // is encoded as a int32_t not exactly 3 bytes. See alsa docs:
     // ```

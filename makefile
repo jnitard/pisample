@@ -94,6 +94,7 @@ sync: $(BIN)
 	@scp $(BIN) *.cpp *.h $(PI):pisample/ 1>/dev/null 2>/dev/null
 	@echo "Synch’ed files"
 
+### !! The command lines when running debugging
 ARGS = --midi-in-port \"ATOM MIDI 1\"
 
 run: sync
