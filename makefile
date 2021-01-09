@@ -91,7 +91,7 @@ PI:=pi@$(PI_IP)
 
 sync: $(BIN)
 	@echo "Connecting to ${PI}"
-	@scp $(BIN) *.cpp *.h $(PI):pisample/ 1>/dev/null 2>/dev/null
+	@scp $(BIN) *.cpp *.h *.sh $(PI):pisample/ 1>/dev/null 2>/dev/null
 	@echo "Synch’ed files"
 
 ### !! The command lines when running debugging

@@ -64,7 +64,7 @@ namespace ps
     int _inputChannelCount;
     static constexpr int _outputChannelCount = 2;
     // when nothing specified just take the first two.
-    // TODO: handle mono.
+    // TODO: handle mono ?
     std::array<int, _outputChannelCount> _channels;
     
     // **** these variables should only be accessed in the rec thread ****

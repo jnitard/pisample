@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.1
+Name=PiSample
+Comment=The thing I have a PI for
+Icon=/usr/share/pixmaps/openbox.xpm
+Exec=lxterminal -e /usr/bin/bash -c '/home/pi/start.sh'
+Type=Application
+Terminal=false
