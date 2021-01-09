@@ -95,7 +95,12 @@ sync: $(BIN)
 	@echo "Synch’ed files"
 
 ### !! The command lines when running debugging
-ARGS = --midi-in-port \"ATOM MIDI 1\"
+ARGS = --midi-in-port \"ATOM MIDI 1\" \
+       --audio-in-channels 8,9 \
+       --audio-in-card \"dsnoop:CARD=Prime,DEV=0\" \
+			 --record \
+#
+			 #--audio-in-card pulse \
 
 run: sync
 	$(info ${ARGS})

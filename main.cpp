@@ -12,6 +12,7 @@
 // #include <wx/wx.h>
 
 #include "Alsa.h"
+#include "Arguments.h"
 #include "Atom.h"
 #include "Pads.h"
 #include "Device.h"
@@ -114,14 +115,6 @@ private:
 };
 
 
-struct Argument
-{
-  string Doc;
-  optional<string> Value;
-  bool Flag = false;
-  bool Given = false;
-};
-
 void printHelp(const unordered_map<string, Argument>& args)
 {
   for (auto& [name, arg]: args) {
@@ -219,14 +212,6 @@ try {
       .Doc = "The midi port for the ATOM device (eg 'ATOM MIDI 1')",
       .Value = nullopt,
     } },
-    { "audio-in-card"s, {
-      .Doc = "The card to record from",
-      .Value = "pulse",
-    } },
-    { "audio-in-channels"s, {
-      .Doc = "Select channels for recording",
-      .Value = "",
-    } },
     { "record"s, {
       .Doc = "Start recording on startup. Meant for testing mainly.",
       .Value = "false",
@@ -234,10 +219,11 @@ try {
     } }
   };
 
+  merge(args, Recorder::args());
+
   readArguments(args, argc, argv);
 
   const char* devicePortName = args["midi-in-port"].Value->c_str();
-  const char* recordCard = args["audio-in-card"].Value->c_str();
   bool recordOnStart;
   stringstream(args["record"].Value->c_str()) >> boolalpha >> recordOnStart;
 
@@ -245,7 +231,7 @@ try {
   {
     Device device(devicePortName);
     Pads pads(device);
-    Recorder recorder(device, recordCard, nullptr);
+    Recorder recorder(device,args);
     PiSample piSample(device, recorder);
 
     device.setSynth(piSample);
@@ -264,6 +250,8 @@ try {
 
     shutdown = piSample.getShutdown();
   }
+
+  cout.flush();
 
   // Obvioulsy this is really realistic on a PI only.
   if (shutdown) {
