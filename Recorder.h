@@ -42,7 +42,6 @@ namespace ps
     void poll();
 
   private:
-    Device& _device;
     std::atomic<bool> _on   = false;
     std::atomic<bool> _stop = false;
 
@@ -58,6 +57,10 @@ namespace ps
 
     std::thread _thread;
 
+    // **** these variables should only be accessed in the rec thread ****
+    // (they are set in the constructor)
+    Device& _device;
+
     int _sampleBits = -1;
     int _storageBytes = -1;
     snd_pcm_format_t _format;
@@ -66,12 +69,13 @@ namespace ps
     // when nothing specified just take the first two.
     // TODO: handle mono ?
     std::array<int, _outputChannelCount> _channels;
-    
-    // **** these variables should only be accessed in the rec thread ****
-    // (or in the constructor)
     int _rate = -1;
-    // we don’t need 10 channels, we need channels 8 and 9 :(
-    // though not sure how to get just those two with alsa
+    // Some mixers (as the Denon Prime X1800) presents all cheir channels
+    // (10 in that case, numbered 0-9) as one device. That’s convenient to
+    // record samples of individual channels of the mixer, but we may care
+    // about a specific pair ... There is no channel description that makes
+    // sense in Alsa as far as I can tell (the x1800 gets recognized as 7.1
+    // + 2 aux channels).
     PcmPtr _in;
     FlacPtr _enc;
     std::vector<uint8_t> _readBuf;
