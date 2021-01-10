@@ -82,6 +82,7 @@ namespace ps
     std::vector<uint8_t> _readBuf;
     // flac always take int32_t i.e. signed 32 bit values
     std::vector<int32_t> _convBuf;
+    size_t _readOk = 0;
     size_t _readErrors = 0;
     // ---------------------------------------------------------------------- //
 

@@ -87,6 +87,7 @@ Recorder::Recorder(Device& d, const ArgMap& args)
     // TODO : check writable by us, not much of a concern on a PI.
     _recordDir += '/';
   }
+
   if (_inputChannelCount == -1) {
     _inputChannelCount = _in.Format.Channels;
   }
@@ -97,10 +98,10 @@ Recorder::Recorder(Device& d, const ArgMap& args)
   // flac always take in 24 bit samples padded to 32 bits and always
   // 2 channels.
   _convBuf.resize(sampleCount * sizeof(uint32_t) * _channels.size());
-  fmt::print("input channels: {}, rate: {}, sample bits: {} (stored: {})\n",
-    _inputChannelCount, _in.Format.Rate, _in.Format.Rate, _storageBytes * 8);
+  fmt::print("[REC] input channels: {}, rate: {}, sample bits: {} (stored: {})\n",
+    _inputChannelCount, _in.Format.Rate, _in.Format.Bits, _storageBytes * 8);
 
-  fmt::print("Recording channels {},{} on {}\n",
+  fmt::print("[REC] Recording channels {},{} on {}\n",
       _channels[0], _channels[1], _interface);
   cout.flush();
   _thread = thread([this]{ run(); });
@@ -155,7 +156,8 @@ void Recorder::startRecording()
   _enc.reset(FLAC__stream_encoder_new());
   // we are receiving N channels but always keep 2, no plans to support mono
   FLAC__stream_encoder_set_channels(_enc.get(), _channels.size());
-  // We may get more data in and convert down to 24 bit
+  // We may get more precision in and convert down to 24 bit as FLAC
+  // can’t support more than that.
   FLAC__stream_encoder_set_bits_per_sample(
       _enc.get(),
       min(24, _in.Format.Bits));
@@ -174,7 +176,7 @@ void Recorder::startRecording()
   // if (alsaRes < 0) {
   //   throw Exception("Could not start recording ({})", AlsaErr{res});
   // }
-  fmt::print("Starting to record to {}\n", fileName);
+  fmt::print("[REC] Starting to record to {}\n", fileName);
 }
 
 void Recorder::stopRecording(bool drain)
@@ -187,7 +189,7 @@ void Recorder::stopRecording(bool drain)
     FLAC__stream_encoder_finish(_enc.get());
   }
   _enc.reset();
-  fmt::print("Stopped recording (errors: {})\n", _readErrors);
+  fmt::print("[REC] Stopped recording (ok: {}, errors: {})\n", _readOk, _readErrors);
   cout.flush();
   _readErrors = 0;
 }
@@ -205,13 +207,13 @@ void Recorder::recordFrames()
       return;
     }
     if (_readErrors == 0) {
-      fmt::print("Recorder : Read error: {} ({})\n",
+      fmt::print("[REC] Read error: {} ({})\n",
           AlsaErr{nFrames}, nFrames);
     }
     ++_readErrors;
     int res = snd_pcm_recover(_in.Ptr, nFrames, true /*silent*/);
     if (res < 0) {
-      fmt::print("Failed to recover after recording error, stopping...\n");
+      fmt::print("[REC] Failed to recover after recording error, stopping...\n");
       stopRecording(false /* no drain, stuff failed */);
       return;
     }
@@ -221,6 +223,8 @@ void Recorder::recordFrames()
       this_thread::sleep_for(c::microseconds(500));
       return;
     }
+
+    ++_readOk;
 
     // TODO: this shouts "vectorize me"
     for (long i = 0; i < nFrames; ++i) {
@@ -273,5 +277,5 @@ void Recorder::run()
     }
   }
 
-  fmt::print("Record thread exit\n");
+  fmt::print("[REC] Record thread exit\n");
 }

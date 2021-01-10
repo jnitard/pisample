@@ -49,8 +49,8 @@ Player::Player(const ArgMap& args)
     _outputChannelCount = _out.Format.Channels;
   }
 
-  fmt::print("Will output sounds at rate={}, bits={}, total available channels {}\n",
-      _out.Format.Rate, _out.Format.Bits, _outputChannelCount);
+  fmt::print("[PLAY] Will output sounds at rate={}, bits={}, total available "
+      "channels {}\n", _out.Format.Rate, _out.Format.Bits, _outputChannelCount);
 
   _thread = thread([this]{ run(); });
 }

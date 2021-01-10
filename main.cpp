@@ -291,8 +291,8 @@ try {
   {
     Device device(devicePortName);
     Pads pads(device);
-    Recorder recorder(device, args);
     Player player(args);
+    Recorder recorder(device, args);
     PiSample piSample(device, recorder);
 
     device.setSynth(piSample);
