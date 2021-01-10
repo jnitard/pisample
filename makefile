@@ -7,13 +7,16 @@ endif
 
 MAKEFLAGS+=-j
 
-CXXFLAGS+=-O3 -g
+#CXXFLAGS+=-O3 -g
+CXXFLAGS+= -g
 # Cross-compiler I found is too old for c++20.
 CXXFLAGS+=-std=c++2a -Wall -Werror -Wextra
 CXXFLAGS+=-fdiagnostics-color=always
 # We compile everything with a recent enough GCC hopefully ...
 # wxwidgets is the only C++ dependency.
 CXXFLAGS+=-Wno-psabi
+
+LFLAGS += -lstdc++fs
 
 
 #### Cross compilation stuff ####
@@ -46,8 +49,10 @@ BIN = pisample
 all: $(BIN)
 
 SRC = main.cpp      \
+      Alsa.cpp      \
       Device.cpp    \
       Pads.cpp      \
+      Player.cpp    \
       Recorder.cpp  \
 #
 
@@ -91,13 +96,11 @@ PI:=pi@$(PI_IP)
 
 sync: $(BIN)
 	@echo "Connecting to ${PI}"
-	@scp $(BIN) *.cpp *.h *.sh $(PI):pisample/ 1>/dev/null 2>/dev/null
+	@scp $(BIN) *.cpp *.h *.sh *.ini $(PI):pisample/ 1>/dev/null 2>/dev/null
 	@echo "Synch’ed files"
 
 ### !! The command lines when running debugging
-ARGS = --midi-in-port \"ATOM MIDI 1\" \
-       --audio-in-channels 8,9 \
-       --audio-in-card \"dsnoop:CARD=Prime,DEV=0\" \
+ARGS = --config ~/pisample/config.ini \
 			 --record \
 #
 			 #--audio-in-card pulse \

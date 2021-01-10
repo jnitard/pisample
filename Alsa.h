@@ -2,8 +2,7 @@
 
 /// \file Some helpers for ALSA.
 
-#include <alsa/seq_event.h>
-#include <alsa/error.h>
+#include <alsa/asoundlib.h>
 
 #include "fmt.h"
 
@@ -13,20 +12,9 @@ namespace ps
 {
   struct AlsaErr
   {
-    int Err;
+    long Err;
   };
-
-  struct PcmDeleter
-  {
-    void operator()(snd_pcm_t* ptr) const
-    {
-      snd_pcm_drop(ptr);
-      snd_pcm_close(ptr);
-    }
-  };
-
-  using PcmPtr = std::unique_ptr<snd_pcm_t, PcmDeleter>;
-
+  
   template <class OStream>
   OStream& operator<<(OStream& out, AlsaErr err)
   {
@@ -35,71 +23,59 @@ namespace ps
   }
 
   /// Turn an event into string, mostly useful for debugging.
-  constexpr const char* eventToString(snd_seq_event_type_t event)
+  const char* eventToString(snd_seq_event_type_t event);
+
+  struct FrameFormat
   {
-    #define ALSA_CASE(x) case SND_SEQ_EVENT_ ## x: return #x;
-    switch ((snd_seq_event_type)event) {
-      ALSA_CASE(SYSTEM);
-      ALSA_CASE(RESULT);
-      ALSA_CASE(NOTE);
-      ALSA_CASE(NOTEON);
-      ALSA_CASE(NOTEOFF);
-      ALSA_CASE(KEYPRESS);
-	    ALSA_CASE(CONTROLLER);
-	    ALSA_CASE(PGMCHANGE);
-	    ALSA_CASE(CHANPRESS);
-	    ALSA_CASE(PITCHBEND);
-	    ALSA_CASE(CONTROL14);
-	    ALSA_CASE(NONREGPARAM);
-	    ALSA_CASE(REGPARAM);
-      ALSA_CASE(SONGPOS);
-      ALSA_CASE(SONGSEL);
-      ALSA_CASE(QFRAME);
-      ALSA_CASE(TIMESIGN);
-      ALSA_CASE(KEYSIGN);
-      ALSA_CASE(START);
-      ALSA_CASE(CONTINUE);
-      ALSA_CASE(STOP);
-      ALSA_CASE(SETPOS_TICK);
-      ALSA_CASE(SETPOS_TIME);
-      ALSA_CASE(TEMPO);
-      ALSA_CASE(CLOCK);
-      ALSA_CASE(TICK);
-      ALSA_CASE(QUEUE_SKEW);
-      ALSA_CASE(SYNC_POS);
-      ALSA_CASE(TUNE_REQUEST);
-      ALSA_CASE(RESET);
-      ALSA_CASE(SENSING);
-      ALSA_CASE(ECHO);
-      ALSA_CASE(OSS);
-      ALSA_CASE(CLIENT_START);
-      ALSA_CASE(CLIENT_EXIT);
-      ALSA_CASE(CLIENT_CHANGE);
-      ALSA_CASE(PORT_START);
-      ALSA_CASE(PORT_EXIT);
-      ALSA_CASE(PORT_CHANGE);
-      ALSA_CASE(PORT_SUBSCRIBED);
-      ALSA_CASE(PORT_UNSUBSCRIBED);
-      ALSA_CASE(USR0);
-      ALSA_CASE(USR1);
-      ALSA_CASE(USR2);
-      ALSA_CASE(USR3);
-      ALSA_CASE(USR4);
-      ALSA_CASE(USR5);
-      ALSA_CASE(USR6);
-      ALSA_CASE(USR7);
-      ALSA_CASE(USR8);
-      ALSA_CASE(USR9);
-      ALSA_CASE(SYSEX);
-      ALSA_CASE(BOUNCE);
-      ALSA_CASE(USR_VAR0);
-      ALSA_CASE(USR_VAR1);
-      ALSA_CASE(USR_VAR2);
-      ALSA_CASE(USR_VAR3);
-      ALSA_CASE(USR_VAR4);
-      ALSA_CASE(NONE);
+    int Rate;
+    int Bits;
+    int Channels; // when not given explicitely, card may have 10 channels
+                  // we need to read or write but only care about 2
+  };
+
+  /// Wraps snd_pcm_t construction and destruction. Determine a sample format
+  /// that can be used with that card, start with the higher ones for best
+  /// quality first and then goes down. I am disabling that for now.
+  /// TODO: make sample format configurable ?
+  struct Pcm
+  {
+    // Try some easy to implement format first.
+    // If a format is not supported I’d recommend switching input to pulse
+    // at much more CPU expense.
+    Pcm(std::string_view interface,
+        snd_pcm_stream_t direction,
+        int expectedChannelCount,
+        std::array<int, 2> channels);
+    Pcm(const Pcm&) = delete;
+    ~Pcm();
+
+    // NOTE: can’t be held by value and is used via pointers by most C-apis,
+    // so keeping a raw pointer.
+    snd_pcm_t* Ptr;
+    FrameFormat Format;
+  };
+
+  inline int formatBits(snd_pcm_format_t format)
+  {
+    switch (format) {
+      case SND_PCM_FORMAT_S16_LE: return 16;
+      case SND_PCM_FORMAT_S24_LE: return 24;
+      case SND_PCM_FORMAT_S32_LE: return 32;
+      default:
+        throw Exception("Unsupported format {}", (int)format);
     }
-    #undef ALSA_CASE
-    return "UNKNOWN";
+    __builtin_unreachable();
+  }
+
+  inline snd_pcm_format_t bitsToFormat(int bits)
+  {
+    switch (bits) {
+      case 16: return SND_PCM_FORMAT_S16_LE;
+      case 24: return SND_PCM_FORMAT_S24_LE;
+      case 32: return SND_PCM_FORMAT_S32_LE;
+      default:
+        throw Exception("Unsupported number of bits per sample: {}", bits);
+    }
+    __builtin_unreachable();
   }
 }

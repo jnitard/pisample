@@ -4,12 +4,15 @@
 #include <iostream>
 #include <iomanip>
 #include <sstream>
+#include <filesystem>
 
 using namespace std;
 using namespace ps;
 using namespace atom;
 
 namespace c = std::chrono;
+
+#define AUDIO_IN "audio-in-"
 
 namespace 
 {
@@ -20,18 +23,6 @@ namespace
     auto epoch = time.time_since_epoch();
     int64_t millis = c::duration_cast<c::milliseconds>(epoch).count() % 1'000;
     return fmt::format("{}.{:03}.flac", put_time(&local, "%Y%m%d-%H%M%S"), millis);
-  }
-
-  int formatBits(snd_pcm_format_t format)
-  {
-    switch (format) {
-      case SND_PCM_FORMAT_S16_LE: return 16;
-      case SND_PCM_FORMAT_S24_LE: return 24;
-      case SND_PCM_FORMAT_S32_LE: return 32;
-      default:
-        break;
-    }
-    throw Exception("Unsupported format {}", (int)format);
   }
 
   int storageBytes(int sampleBits)
@@ -46,7 +37,7 @@ namespace
   {
     auto it = str.find(',');
     if (it == string::npos) {
-      throw Exception("Invalid audio-in-channels parameter, expecting 'a,b'");
+      throw Exception("Invalid " AUDIO_IN "channels parameter, expecting 'a,b'");
     }
     array<int, 2> result;
     result[0] = stoi(str.substr(0, it));
@@ -58,103 +49,57 @@ namespace
 unordered_map<string, Argument> Recorder::args()
 {
   return {
-    { "audio-in-card"s, {
+    { AUDIO_IN "card"s, {
       .Doc = "The card to record from",
       .Value = nullopt,
     } },
-    { "audio-in-channels"s, {
+    { AUDIO_IN "channels"s, {
       .Doc = "Channels for recording, comma separated. Defaults to the first two",
       .Value = "0,1",
     } },
-    { "audio-in-channel-count", {
+    { AUDIO_IN "channel-count"s, {
       .Doc = "When using Pulse or other audio sources that do not give any "
       "channel map, provide a way to specify the input channel count.",
       .Value = "-1"
+    } },
+    { AUDIO_IN "record-dir"s, {
+      .Doc = "Directory where to save recorded files",
+      .Value = "./"
     } }
   };
 }
 
-void Recorder::findCompatibleFormat()
-{
-  snd_pcm_t* in = nullptr;
-  int err = snd_pcm_open(&in, _interface.c_str(), SND_PCM_STREAM_CAPTURE, 0);
-  if (err < 0) {
-    throw Exception("Could not open recording device {} : {}",
-        _interface, AlsaErr{err});
-  }
-  PcmPtr p(in);
-
-  // Input channel count was not given on the command line, try to guess it
-  // from the channel maps. TODO: there are probably better ways.
-  if (_inputChannelCount == -1) {
-    auto chmaps_init = snd_pcm_query_chmaps(in);
-    auto chmaps = chmaps_init;
-    while (chmaps != nullptr and *chmaps != nullptr) {
-      _inputChannelCount = (*chmaps)->map.channels;
-      if (_inputChannelCount > max(_channels[0], _channels[1]) ) {
-        break;
-      }
-      ++chmaps;
-    }
-    snd_pcm_free_chmaps(chmaps_init);
-  }
-
-  if (_inputChannelCount == -1) {
-    throw Exception("Could not guess the total number of input channels. "
-      "This is likely when working with pulse. You can give "
-      "--audio-in-channel-count X to set the value.");
-  }
-
-  if (any_of(begin(_channels), end(_channels),
-       [this](int c) { return c >= _inputChannelCount; }))
-  {
-    throw Exception("All channels given to --audio-in-channels must be less "
-        "than the total number of channels ({})", _inputChannelCount);
-  }
-
-  _rate = 0;
-  for (int rate : {48000, 44100}) {
-    for (snd_pcm_format_t format:
-        {SND_PCM_FORMAT_S24_LE, SND_PCM_FORMAT_S16_LE, SND_PCM_FORMAT_S32_LE})
-    {
-      int err = snd_pcm_set_params(
-        p.get(),
-        format,
-        SND_PCM_ACCESS_RW_INTERLEAVED,
-        _inputChannelCount,
-        rate,
-        0 /* soft re-sample */,
-        0 /* latency */);
-      if (err >= 0) {
-        _rate = rate;
-        _format = format;
-        _sampleBits = formatBits(_format);
-        _storageBytes = storageBytes(_sampleBits);
-
-        int sampleCount = _rate / 10;
-
-        _readBuf.resize(sampleCount * _storageBytes * _inputChannelCount);
-        // flac always take in 24 bit samples padded to 32 bits and always
-        // 2 channels.
-        _convBuf.resize(sampleCount * sizeof(uint32_t) * _channels.size());
-        fmt::print("input channels: {}, rate: {}, sample bits: {} (stored: {})\n",
-          _inputChannelCount, _rate, _sampleBits, _storageBytes * 8);
-        return;
-      }
-    }
-  }
-
-  throw Exception("Device does not support any format we support (44100 or "
-      "48000 sampling rate, *signed* 16, 24 or 32 bit little endian).");
-}
-
 Recorder::Recorder(Device& d, const ArgMap& args)
   : _device(d)
-  , _inputChannelCount(stoi(* args.find("audio-in-channel-count")->second.Value))
-  , _channels(parseChannels(* args.find("audio-in-channels")->second.Value))
-  , _interface(* args.find("audio-in-card")->second.Value)
+  , _recordDir(* args.find(AUDIO_IN "record-dir")->second.Value)
+  , _interface(* args.find(AUDIO_IN "card")->second.Value)
+  , _inputChannelCount(stoi(* args.find(AUDIO_IN "channel-count")->second.Value))
+  , _channels(parseChannels(* args.find(AUDIO_IN "channels")->second.Value))
+  , _in(_interface, SND_PCM_STREAM_CAPTURE, _inputChannelCount, _channels)
+  , _storageBytes(storageBytes(_in.Format.Bits))
 {
-  findCompatibleFormat();
+  if (not _recordDir.empty() && _recordDir.back() != '/') {
+    filesystem::directory_entry dir(_recordDir);
+    if (not dir.exists() or not dir.is_directory()) {
+      throw Exception("Configured " AUDIO_IN "record-dir '{}' does not exist or "
+          "is not a directory", _recordDir);
+    }
+    // TODO : check writable by us, not much of a concern on a PI.
+    _recordDir += '/';
+  }
+  if (_inputChannelCount == -1) {
+    _inputChannelCount = _in.Format.Channels;
+  }
+
+  int sampleCount = _in.Format.Rate / 10;
+
+  _readBuf.resize(sampleCount * _storageBytes * _inputChannelCount);
+  // flac always take in 24 bit samples padded to 32 bits and always
+  // 2 channels.
+  _convBuf.resize(sampleCount * sizeof(uint32_t) * _channels.size());
+  fmt::print("input channels: {}, rate: {}, sample bits: {} (stored: {})\n",
+    _inputChannelCount, _in.Format.Rate, _in.Format.Rate, _storageBytes * 8);
+
   fmt::print("Recording channels {},{} on {}\n",
       _channels[0], _channels[1], _interface);
   cout.flush();
@@ -169,7 +114,7 @@ Recorder::~Recorder()
   }
 
   if (_on) {
-    stopRecording();
+    stopRecording(true /*drain*/);
   }
 }
 
@@ -205,15 +150,16 @@ void Recorder::poll()
 void Recorder::startRecording()
 {
   // Setup FLAC
-  auto fileName = filenameForTime(c::system_clock::now());
+  auto fileName = _recordDir + filenameForTime(c::system_clock::now());
+
   _enc.reset(FLAC__stream_encoder_new());
-  // we are receiving N channels but always keep 2
+  // we are receiving N channels but always keep 2, no plans to support mono
   FLAC__stream_encoder_set_channels(_enc.get(), _channels.size());
   // We may get more data in and convert down to 24 bit
   FLAC__stream_encoder_set_bits_per_sample(
       _enc.get(),
-      min(24, _sampleBits));
-  FLAC__stream_encoder_set_sample_rate(_enc.get(), _rate);
+      min(24, _in.Format.Bits));
+  FLAC__stream_encoder_set_sample_rate(_enc.get(), _in.Format.Rate);
   auto res = FLAC__stream_encoder_init_file(
       _enc.get(),
       fileName.c_str(),
@@ -224,39 +170,23 @@ void Recorder::startRecording()
     throw Exception("Could not initialize FLAC encoder ({})", (int)res);
   }
 
-  // Setup ALSA
-  snd_pcm_t* in = nullptr;
-  int err = snd_pcm_open(&in, _interface.c_str(),
-      SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK);
-  if (err < 0) {
-    throw Exception("Could not open recording device {} : {}",
-        _interface, AlsaErr{err});
-  }
-  _in.reset(in);
-
-  snd_pcm_nonblock(_in.get(), 1);
-
-  err = snd_pcm_set_params(
-      _in.get(),
-      _format,
-      SND_PCM_ACCESS_RW_INTERLEAVED,
-      _inputChannelCount,
-      _rate,
-      0 /* soft re-sample */,
-      0 /* latency */);
-  if (err < 0) {
-    throw Exception("Failed to set recording parameters {}",
-        AlsaErr{err});
-  }
-
+  // int alsaRes = snd_pcm_start(_in.Ptr);
+  // if (alsaRes < 0) {
+  //   throw Exception("Could not start recording ({})", AlsaErr{res});
+  // }
   fmt::print("Starting to record to {}\n", fileName);
 }
 
-void Recorder::stopRecording()
+void Recorder::stopRecording(bool drain)
 {
-  FLAC__stream_encoder_finish(_enc.get());
+  if (drain) {
+    snd_pcm_drain(_in.Ptr);
+    recordFrames();
+  }
+  if (_enc) {
+    FLAC__stream_encoder_finish(_enc.get());
+  }
   _enc.reset();
-  _in.reset();
   fmt::print("Stopped recording (errors: {})\n", _readErrors);
   cout.flush();
   _readErrors = 0;
@@ -264,25 +194,31 @@ void Recorder::stopRecording()
 
 void Recorder::recordFrames()
 {
-  // blocking while buffer is not full, typically using 1s buffer size
-  auto nFrames = snd_pcm_readi(_in.get(), _readBuf.data(),
+  // blocking while buffer is not full, using 100ms buffer size
+  // (i.e sample rate/10)
+  auto nFrames = snd_pcm_readi(_in.Ptr, _readBuf.data(),
       _readBuf.size() / _inputChannelCount / _storageBytes);
   
   if (nFrames < 0) {
     if (-nFrames == EAGAIN) {
-      this_thread::sleep_for(c::milliseconds(1));
+      this_thread::sleep_for(c::microseconds(500));
       return;
     }
     if (_readErrors == 0) {
       fmt::print("Recorder : Read error: {} ({})\n",
-          snd_strerror(nFrames), nFrames);
+          AlsaErr{nFrames}, nFrames);
     }
     ++_readErrors;
-    snd_pcm_recover(_in.get(), nFrames, true /*silent*/);
+    int res = snd_pcm_recover(_in.Ptr, nFrames, true /*silent*/);
+    if (res < 0) {
+      fmt::print("Failed to recover after recording error, stopping...\n");
+      stopRecording(false /* no drain, stuff failed */);
+      return;
+    }
   }
   else {
     if (nFrames == 0) {
-      this_thread::sleep_for(c::milliseconds(1));
+      this_thread::sleep_for(c::microseconds(500));
       return;
     }
 
@@ -297,9 +233,9 @@ void Recorder::recordFrames()
             i * _storageBytes * _inputChannelCount + 
             _channels[j] * _storageBytes
           ],
-          _sampleBits * 8
+          _in.Format.Bits * 8
         );
-        if (_sampleBits == 32) {
+        if (_in.Format.Bits == 32) {
           _convBuf[idx] = _convBuf[idx] / 256;
         }
       }
@@ -318,7 +254,7 @@ void Recorder::run()
   while (not _stop) {
     if (wasOn) {
       if (!_on) {
-        stopRecording();
+        stopRecording(true /*drain*/);
         wasOn = false;
       }
       else {

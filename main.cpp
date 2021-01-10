@@ -1,12 +1,13 @@
-#include <iostream>
-#include <utility>
-#include <memory>
 #include <chrono>
-#include <thread>
 #include <csignal>
+#include <iostream>
+#include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
+#include <thread>
 #include <unordered_map>
+#include <utility>
 
 #include <alsa/asoundlib.h>
 // #include <wx/wx.h>
@@ -14,8 +15,9 @@
 #include "Alsa.h"
 #include "Arguments.h"
 #include "Atom.h"
-#include "Pads.h"
 #include "Device.h"
+#include "Pads.h"
+#include "Player.h"
 #include "Recorder.h"
 
 using namespace ps; // PiSample
@@ -130,10 +132,21 @@ void printHelp(const unordered_map<string, Argument>& args)
   exit(EXIT_FAILURE);
 }
 
+// probably not the most efficient way, too lazy to deal with indices.
+string trimSpaces(const string& s)
+{
+  string_view v = s;
+  while (not v.empty() and v.front() == ' ') v = v.substr(1);
+  while (not v.empty() and v.back()  == ' ') v = v.substr(0, v.size() - 1);
+  return (string)v;
+}
+
 void readArguments(
     unordered_map<string, Argument>& args,
     int argc, const char* const* argv)
 {
+  set<string> presentOnCommandLine;
+
   int i = 0; // modified if we find a value.
   while (++i, i < argc) {
     if (argv[i] == "--help"s || argv[i] == "-h"s) {
@@ -160,6 +173,8 @@ void readArguments(
       throw Exception("{} was given twice", it->first);
     }
     arg.Given = true;
+
+    presentOnCommandLine.insert(argv[i]);
 
     if (i+1 < argc) {
       bool nextIsArg = string(argv[i+1]).substr(0, 2) == "--";
@@ -191,6 +206,50 @@ void readArguments(
     }
   }
 
+  auto configFileName = * args.find("config")->second.Value;
+  if (not configFileName.empty()) {
+    ifstream config(configFileName);
+    if (!config) {
+      throw Exception("Could not open config file: {}", configFileName);
+    }
+
+    string line;
+    int lineNo = 0;
+    while (getline(config, line)) {
+      ++lineNo;
+      if (line.empty() or line[0] == '#') {
+        continue;
+      }
+      auto equalPos = line.find('=');
+      if (equalPos == string::npos) {
+        auto it = args.find(line);
+        if (it == end(args)) {
+          throw Exception("At line {}, unknown argument: {}", lineNo, line);
+        }
+        if (not it->second.Flag) {
+          throw Exception("At line {}, '{}' requires a value", lineNo, line);
+        }
+        if (presentOnCommandLine.count(line) > 0) {
+          continue;
+        }
+        it->second.Value = "true";
+      }
+
+      else {
+        auto key = trimSpaces(line.substr(0, equalPos));
+        auto it = args.find(key);
+        if (it == end(args)) {
+          throw Exception("At line {}, unknown argument: {}", lineNo, line);
+        }
+        if (presentOnCommandLine.count(key) > 0) {
+          continue;
+        }
+
+        it->second.Value = trimSpaces(line.substr(equalPos + 1));
+      }
+    }
+  }
+
   for (auto& [name, arg]: args) {
     if (arg.Value == nullopt) {
       throw Exception("No value given for {} and no default exists", name);
@@ -204,10 +263,10 @@ try {
   setupSignals();
 
   unordered_map<string, Argument> args = {
-    // { "config"s, {
-    //   .Doc = "A config file with further options in it.",
-    //   .Value = "",
-    // } },
+    { "config"s, {
+      .Doc = "A config file with further options in it.",
+      .Value = "",
+    } },
     { "midi-in-port"s, {
       .Doc = "The midi port for the ATOM device (eg 'ATOM MIDI 1')",
       .Value = nullopt,
@@ -220,6 +279,7 @@ try {
   };
 
   merge(args, Recorder::args());
+  merge(args, Player::args());
 
   readArguments(args, argc, argv);
 
@@ -231,7 +291,8 @@ try {
   {
     Device device(devicePortName);
     Pads pads(device);
-    Recorder recorder(device,args);
+    Recorder recorder(device, args);
+    Player player(args);
     PiSample piSample(device, recorder);
 
     device.setSynth(piSample);
