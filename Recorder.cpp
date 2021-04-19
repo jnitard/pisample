@@ -189,7 +189,8 @@ void Recorder::stopRecording(bool drain)
     FLAC__stream_encoder_finish(_enc.get());
   }
   _enc.reset();
-  fmt::print("[REC] Stopped recording (ok: {}, errors: {})\n", _readOk, _readErrors);
+  fmt::print("[REC] Stopped recording (ok: {}, errors: {})\n",
+    _readOk, _readErrors);
   cout.flush();
   _readErrors = 0;
 }

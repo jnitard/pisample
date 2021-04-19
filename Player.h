@@ -6,6 +6,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <filesystem>
 
 namespace ps
 {
@@ -21,8 +22,10 @@ namespace ps
 
     /// Add a new sample, returns the index used to replay it.
     /// NOTE: loading a new sample will not happen while anything is playing.
+    /// 0-based return value, i.e. 0 is a valid sample index.
     int load(FrameFormat, std::vector<uint8_t>&& bytes);
-    int load(/* some file name */);
+    /// Same as above but reads the file from the disk for you as well.
+    int load(std::filesystem::path);
 
     /// Start playing the given sample index as returned per load.
     /// Other samples will keep playing.

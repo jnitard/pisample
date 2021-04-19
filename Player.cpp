@@ -75,7 +75,7 @@ int Player::load(FrameFormat, std::vector<uint8_t>&& /*bytes*/)
   return -1;
 }
 
-int Player::load(/* some file name */)
+int Player::load(std::filesystem::path)
 {
   return -1;
 }

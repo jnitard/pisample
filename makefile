@@ -40,7 +40,7 @@ LFLAGS+=-L$(ROOT)\\lib
 # WXWidgets, got from wx-config --cxxflags
 CXXFLAGS+= -D_FILE_OFFSET_BITS=64 -DWXUSINGDLL -D__WXGTK__ -pthread
 # others
-LFLAGS += -lasound -lfmt -lFLAC
+LFLAGS += -lasound -lfmt -lFLAC -lavcodec -lavutil -lavformat
 #### --------- ####
 
 BIN = pisample
@@ -52,8 +52,10 @@ SRC = main.cpp      \
       Alsa.cpp      \
       Device.cpp    \
       Pads.cpp      \
+      PiSample.cpp  \
       Player.cpp    \
       Recorder.cpp  \
+      Strings.cpp   \
 #
 
 OBJ  := $(patsubst %.cpp,%.o,$(SRC))

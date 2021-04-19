@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <algorithm>
+#include <string_view>
 
 namespace atom
 {
@@ -42,6 +43,9 @@ namespace atom
     uint8_t r;
     uint8_t g;
     uint8_t b;
+
+    /// Create a color from an HTML hex representation i.e. #123456
+    static Color fromString(std::string_view);
   };
 
   void assertColorValid(Color c);
@@ -243,5 +247,21 @@ namespace atom
     check(c.r, "red");
     check(c.g, "green");
     check(c.b, "blue");
+  }
+
+  inline Color Color::fromString(std::string_view sv)
+  {
+    if (sv.empty() or sv[0] != '#') {
+      throw std::runtime_error("Invalid color value " + std::string(sv));
+    }
+
+    // TODO: would need std::from_chars for OK performance.
+    unsigned hex = stoul((std::string)sv.substr(1), nullptr, 16);
+
+    return Color{
+      .r = uint8_t((hex >> 16) / 2),
+      .g = uint8_t(((hex >> 8) % 256) / 2),
+      .b = uint8_t((hex % 256) / 2)
+    };
   }
 }

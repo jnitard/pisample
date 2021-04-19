@@ -17,6 +17,7 @@
 #include "Atom.h"
 #include "Device.h"
 #include "Pads.h"
+#include "PiSample.h"
 #include "Player.h"
 #include "Recorder.h"
 
@@ -53,68 +54,6 @@ void setupSignals()
   sigaction(SIGABRT, &action, nullptr);
 }
 
-
-class PiSample : public Synth
-{
-public:
-  PiSample(Device& device, Recorder& recorder) :
-      _device(device),
-      _recorder(recorder)
-  { }
-
-  ~PiSample()
-  {
-    _device.sendControl(switchButton(Buttons::Stop, false));
-    _device.sendControl(switchButton(Buttons::Shift, false));
-  }
-
-  bool getShutdown() const { return _willShutdown; }
-
-private:
-  void event(Note n) override
-  {
-    cout << "Note " << (n.OnOff ? "on" : "off")
-         << ", channel: " << (int)n.Channel
-         << ", note: " << (int)n.Note
-         << ", velocity: " << (int)n.Velocity
-         << "\n";
-  }
-
-  void event(Control c) override
-  {
-    switch (static_cast<Buttons>(c.Param)) {
-      case Buttons::Record:
-        if (c.Value == 0x00) {
-          _recorder.toggle();
-        }
-        break;
-      case Buttons::Shift:
-        _shiftPressed = (c.Value != 0);
-        _device.sendControl(switchButton(Buttons::Shift, _shiftPressed));
-        _device.sendControl(switchButton(Buttons::Stop, _shiftPressed));
-        break;
-      case Buttons::Stop:
-        if (_shiftPressed) {
-          goOn = false;
-          _willShutdown = true;
-        }
-        break;
-      default:
-        cout << "Control: "
-             << ", channel: 0" // TODO : for now always 0, most likely need
-             << ", param: " << (int)c.Param // something not an ATOM
-             << ", value: " << (int)c.Value;
-        break;
-    }
-  }
-
-  Device& _device;
-  Recorder& _recorder;
-
-  bool _shiftPressed = false;
-  bool _stopPressed = false;
-  bool _willShutdown = false;
-};
 
 
 void printHelp(const unordered_map<string, Argument>& args)
@@ -278,6 +217,7 @@ try {
     } }
   };
 
+  merge(args, PiSample::args());
   merge(args, Recorder::args());
   merge(args, Player::args());
 
@@ -287,35 +227,30 @@ try {
   bool recordOnStart;
   stringstream(args["record"].Value->c_str()) >> boolalpha >> recordOnStart;
 
-  bool shutdown = false;
-  {
-    Device device(devicePortName);
-    Pads pads(device);
-    Player player(args);
-    Recorder recorder(device, args);
-    PiSample piSample(device, recorder);
+  Device device(devicePortName);
+  Pads pads(device);
+  Player player(args);
+  Recorder recorder(device, args);
+  PiSample piSample(args, device, recorder, player);
 
-    device.setSynth(piSample);
+  device.setSynth(piSample);
 
-    if (recordOnStart) {
-      recorder.toggle();
+  if (recordOnStart) {
+    recorder.toggle();
+  }
+
+  while (goOn && ! piSample.shutdown()) {
+    if (not device.poll()) {
+      pads.poll();
+      recorder.poll();
+      this_thread::sleep_for(c::microseconds(500));
     }
-
-    while (goOn) {
-      if (not device.poll()) {
-        pads.poll();
-        recorder.poll();
-        this_thread::sleep_for(c::microseconds(500));
-      }
-    }
-
-    shutdown = piSample.getShutdown();
   }
 
   cout.flush();
 
   // Obvioulsy this is really realistic on a PI only.
-  if (shutdown) {
+  if (piSample.shutdown()) {
     system("sudo shutdown now");
   }
 
