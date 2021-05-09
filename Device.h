@@ -41,6 +41,8 @@ namespace ps
     Device(const Device&) = delete;
     ~Device();
 
+    /// TODO: solve the chicken-egg problem to initialize PiSample and move
+    /// this to the constructor.
     void setSynth(Synth& synth) { _synth = & synth; }
 
     /// Returns true if anything changed, potentially indicating more things

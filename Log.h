@@ -1,5 +1,7 @@
 #pragma once
 
+#include "fmt.h"
+
 #include <iostream>
 #include <string>
 #include <filesystem>
@@ -44,6 +46,12 @@ namespace ps
     void error(const char* format, Args&& ... args )
     {
       log(Error, format, std::forward<Args>(args)...);
+    }
+
+    template <class ... Args>
+    [[gnu::noinline]] void throw_(const char* format, Args&& ... args )
+    {
+      throw Exception(format, std::forward<Args>(args)...);
     }
 
   private:

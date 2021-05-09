@@ -55,7 +55,6 @@ void setupSignals()
 }
 
 
-
 void printHelp(const unordered_map<string, Argument>& args)
 {
   for (auto& [name, arg]: args) {
@@ -229,9 +228,9 @@ try {
 
   Device device(devicePortName);
   Pads pads(device);
-  Player player(args);
-  Recorder recorder(device, args);
-  PiSample piSample(args, device, recorder, player);
+  Player player(args, pads);
+  Recorder recorder(device, pads, args);
+  PiSample piSample(args, device, pads, recorder, player);
 
   device.setSynth(piSample);
 
@@ -243,13 +242,14 @@ try {
     if (not device.poll()) {
       pads.poll();
       recorder.poll();
+      piSample.poll();
       this_thread::sleep_for(c::microseconds(500));
     }
   }
 
   cout.flush();
 
-  // Obvioulsy this is really realistic on a PI only.
+  // Obvioulsy this is really realistic on a PI not used as a main computer.
   if (piSample.shutdown()) {
     system("sudo shutdown now");
   }

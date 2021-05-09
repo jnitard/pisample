@@ -106,15 +106,7 @@ Animation ps::caterpillar()
 Pads::Pads(Device& device)
   : _device(device)
 {
-  forAllPads([this](Pad p) {
-    setPad(
-      p,
-      PadMode::Off,
-      Color{ .r = 0, .g = 0, .b = 0 }
-    );
-  });
-
-  startPlaying(caterpillar(), true /*repeat*/);
+  reset();
 }
 
 void Pads::setPad(atom::Pad p, atom::PadMode m, atom::Color c)
@@ -192,5 +184,11 @@ void Pads::reset()
 {
   _stepIndex = 0;
   _animation.clear();
-  // TODO : set initial state
+  forAllPads([this](Pad p) {
+    setPad(
+      p,
+      PadMode::Off,
+      Color{ .r = 0, .g = 0, .b = 0 }
+    );
+  });
 }

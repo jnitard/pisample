@@ -7,6 +7,8 @@
 /// Note: the functions are returning vector<Note>, those are midi sequences
 /// that must be sent to the device via your favourite MIDI api.
 /// I used Alsa on Raspberry Pi + linux.
+///
+/// NOTE: should only depend on the standard library
 
 #include <string>
 #include <vector>
@@ -59,6 +61,10 @@ namespace atom
     /// Exclusive
     Last = 0x24 + 16
   };
+  constexpr Pad operator+(Pad lhs, int rhs)
+  {
+    return static_cast<Pad>(uint8_t(lhs) + rhs);
+  }
   constexpr uint8_t operator-(Pad lhs, Pad rhs)
   {
     return uint8_t(lhs) - uint8_t(rhs);
@@ -180,7 +186,7 @@ namespace atom
   /// Initialize This is required to be done first and changing button colors.
   inline std::vector<Note> initSequence()
   {
-    return { Note{ 
+    return { Note{
       .OnOff = false,
       .Channel = 0xf,
       .Note = 0,
@@ -239,7 +245,7 @@ namespace atom
   inline void assertColorValid(Color c)
   {
     using namespace std::string_literals;
-    auto check = [] (uint8_t component, const char* name) { 
+    auto check = [] (uint8_t component, const char* name) {
       if (component > 127) {
         throw std::out_of_range("Value for "s + name + " must be below 128");
       }

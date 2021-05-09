@@ -36,11 +36,13 @@ endif
 
 #### LIBRARIES ####
 CXXFLAGS+=-I$(ROOT)
-LFLAGS+=-L$(ROOT)\\lib
+LFLAGS+=-L$(ROOT)/lib
 # WXWidgets, got from wx-config --cxxflags
 CXXFLAGS+= -D_FILE_OFFSET_BITS=64 -DWXUSINGDLL -D__WXGTK__ -pthread
 # others
-LFLAGS += -lasound -lfmt -lFLAC -lavcodec -lavutil -lavformat
+LFLAGS += -lasound -lfmt -lFLAC
+# ffmpeg requires dl
+LFLAGS += -ldl -lavcodec -lavformat -lavutil
 #### --------- ####
 
 BIN = pisample
@@ -105,7 +107,7 @@ sync: $(BIN)
 ARGS = --config ~/pisample/config.ini \
 			 --record \
 #
-			 #--audio-in-card pulse \
+#--audio-in-card pulse \
 
 run: sync
 	$(info ${ARGS})

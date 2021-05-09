@@ -3,6 +3,7 @@
 #include "Device.h"
 #include "Alsa.h"
 #include "Arguments.h"
+#include "PadsAccess.h"
 
 #include <alsa/asoundlib.h>
 #include <FLAC/stream_encoder.h>
@@ -28,12 +29,12 @@ namespace ps
 
   /// This is meant to record a full DJ set to disk rather than a sample.
   /// TODO: record to memory for live sampling.
-  class Recorder
+  class Recorder : public PadsAccess
   {
   public:
     /// Note: The device is used to affect some buttons
     /// TODO: could we break the dependency ? not worth it for now.
-    Recorder(Device& d, const ArgMap&);
+    Recorder(Device& d, Pads&, const ArgMap&);
     Recorder(const Recorder&) = delete;
     ~Recorder();
 

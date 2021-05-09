@@ -10,6 +10,7 @@
 namespace ps
 {
   namespace c = std::chrono;
+  class PadsAccess;
 
   struct PadState
   {
@@ -37,13 +38,18 @@ namespace ps
 
     void setPad(atom::Pad, atom::PadMode, atom::Color);
 
+    /// all pads to off, stop any playing animation
+    void reset();
+
     void startPlaying(Animation, bool repeat);
 
     void poll();
 
   private:
     void step(); // TODO: is this the same as poll exactly ?
-    void reset();
+
+    friend class PadsAccess;
+    PadsAccess* _access = nullptr;
 
     Device& _device;
     std::array<PadState, 16> _pads;
@@ -54,5 +60,6 @@ namespace ps
     c::system_clock::time_point _start = {};
   };
 
+  /// A default animation
   Animation caterpillar();
 }

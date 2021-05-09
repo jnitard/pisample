@@ -1,5 +1,6 @@
 #include "PiSample.h"
 #include "Strings.h"
+#include "Log.h"
 
 #include <iostream>
 #include <utility>
@@ -9,14 +10,16 @@ using namespace atom;
 using namespace ps;
 using namespace std;
 
+namespace {
+  auto logger = Log("UI");
+}
 
 void PiSample::finalizeSample(optional<Sample>& sample, std::filesystem::path file)
 {
   auto& s = sample.value();
   s.PlayerIndex = _player.load(file);
   if (s.PlayerIndex < 0) {
-    fmt::print("[UI] WARN - Ignoring sample {} - player could not load it\n",
-        s.Name);
+    logger.warn("Ignoring sample {} - player could not load it", s.Name);
     sample = nullopt;
   }
 }
@@ -25,7 +28,8 @@ void PiSample::loadBanks(string_view fileName)
 {
   ifstream in(static_cast<string>(fileName));
   if (not in) {
-    throw Exception("Could not open sample files '{}' for reading.", fileName);
+    logger.throw_("Could not open sample files '{}' for reading. You can "
+        "pass an empty file if you do not wish to load any.", fileName);
   }
 
   optional<Sample>* currentSample = nullptr;
@@ -52,7 +56,7 @@ void PiSample::loadBanks(string_view fileName)
 
         // new sample
         if (line.back() != ']') {
-          throw Exception("Malformed line: missing closing ']'");
+          logger.throw_("Malformed line: missing closing ']'");
         }
         line = line.substr(1, line.size() - 2);
 
@@ -61,7 +65,7 @@ void PiSample::loadBanks(string_view fileName)
             parts[0].substr(0, 4) != "Bank" or
             parts[1].substr(0, 3) != "Pad")
         {
-          throw Exception("Malformed line: Must be [BankX.PadY]");
+          logger.throw_("[Malformed line: Must be [BankX.PadY]");
         }
 
         parts[0] = parts[0].substr(4); // remove "Bank"
@@ -75,17 +79,17 @@ void PiSample::loadBanks(string_view fileName)
           }
         }
         catch (...) {
-          throw Exception("Could not convert {} to a valid bank number (> 0)",
+          logger.throw_("Could not convert {} to a valid bank number (> 0)",
               parts[0]);
         }
         if (bankNo != currentBank and bankNo != currentBank + 1) {
-          throw Exception("Bank is {} but last was {} - expecting the same value "
-            "or {}. Banks must be given in order in the file.",
+          logger.throw_("Bank is {} but last was {} - expecting the same "
+            "value or {}. Banks must be given in order in the file.",
             bankNo, currentBank, currentBank + 1);
         }
         currentBank = bankNo;
-        if (banks_.size() < static_cast<unsigned>(bankNo)) {
-          banks_.resize(bankNo);
+        if (_banks.size() < static_cast<unsigned>(bankNo)) {
+          _banks.resize(bankNo);
           // filled with unset Sample for pads.
         }
 
@@ -97,26 +101,27 @@ void PiSample::loadBanks(string_view fileName)
           }
         }
         catch (...) {
-          throw Exception("Could not convert {} to a valid pad number (1-16)",
-              parts[1]);
+          logger.throw_("Could not convert {} to a valid pad number "
+              "(1-16)", parts[1]);
         }
 
-        if (banks_.back()[padNo - 1].has_value()) {
-          throw Exception("Bank{}.Pad{} is present twice in the config", 
+        if (_banks.back()[padNo - 1].has_value()) {
+          logger.throw_("Bank{}.Pad{} is present twice in the config",
               bankNo, padNo);
         }
-        currentSample = & banks_.back()[padNo - 1];
+        currentSample = & _banks.back()[padNo - 1];
         *currentSample = Sample(); // may be reset later in case on an error.
         ++sampleCount;
       }
 
       else {
         if (currentSample == nullptr) {
-          throw Exception("A property key=value was given before [BankY.PadY]");
+          logger.throw_("A property key=value was given before "
+              "[BankY.PadY]");
         }
         split(parts, line, '=');
         if (parts.size() != 2 or parts[0].empty() or parts[1].empty()) {
-          throw Exception("Expecting key=value but found {}. No '=' "
+          logger.throw_("Expecting key=value but found {}. No '=' "
               "allowed in the value.", line);
         }
 
@@ -129,7 +134,7 @@ void PiSample::loadBanks(string_view fileName)
         }
         else if (parts[0] == "Color") {
           if (parts[1][0] != '#') { // note we checked it’s not empty above
-            throw Exception("At line {} expecting an hex color formatted as "
+            logger.throw_("At line {} expecting an hex color formatted as "
                 "'#123456'", index);
           }
           currentSample->value().Color = atom::Color::fromString(parts[1]);
@@ -137,31 +142,37 @@ void PiSample::loadBanks(string_view fileName)
       }
     }
     catch (const exception& ex) {
-      throw Exception("samples file {}, line {}: {}",
-          fileName, index, ex.what());
+      logger.throw_("samples file {}, line {}: {}", fileName, index, ex.what());
     }
   }
 
   if (currentSample == nullptr) {
-    fmt::print("[UI] no samples found in samples line {}\n", fileName);
+    logger.info("No samples found in samples line {}", fileName);
     return;
   }
 
   finalizeSample(*currentSample, currentFile);
 
-  fmt::print("[UI] Loaded {} banks and {} samples, read {} lines in {}\n",
+  logger.info("Loaded {} banks and {} samples, read {} lines in {}",
       currentBank, sampleCount, index, fileName);
 }
 
 
 PiSample::PiSample(
   const unordered_map<string, Argument>& args,
-  Device& device, Recorder& recorder, Player& player) :
-    _device(device),
-    _recorder(recorder),
-    _player(player)
+  Device& device,
+  Pads& pads,
+  Recorder& recorder,
+  Player& player)
+  : PadsAccess(pads)
+  , _device(device)
+  , _recorder(recorder)
+  , _player(player)
 {
   loadBanks(*args.find("samples")->second.Value);
+
+  _currentView = 1;
+  cycleView(false); // activate ourselves as the pads accessor.
 }
 
 PiSample::~PiSample()
@@ -197,11 +208,94 @@ void PiSample::event(atom::Control c)
         _willShutdown = true;
       }
       break;
+    case Buttons::Up:
+      if (c.Value == 0) { // release
+       cycleView(true);
+      }
+      break;
+    case Buttons::Down:
+      if (c.Value == 0) { // release
+        cycleView(false);
+      }
+      break;
+
     default:
       cout << "Control: "
             << ", channel: 0" // TODO : for now always 0, most likely need
             << ", param: " << (int)c.Param // something not an ATOM
-            << ", value: " << (int)c.Value;
+            << ", value: " << (int)c.Value
+            << '\n';
       break;
+  }
+}
+
+void PiSample::cycleView(bool next)
+{
+  if (next) {
+    _currentView = (_currentView + 1) % _views.size();
+  }
+  else {
+    _currentView =  (_currentView - 1 + _views.size()) % _views.size();
+  }
+
+  // First display where we are going, before actually changing anything
+  this->receiveAccess();
+  pads().reset();
+  pads().setPad(
+    atom::Pad::One + _currentView,
+    atom::PadMode::On,
+    _viewColors[_currentView]
+  );
+  _viewAnimTimeout = c::milliseconds(500) + c::system_clock::now();
+}
+
+void PiSample::poll()
+{
+  if (_viewAnimTimeout < c::system_clock::now()) {
+    _viewAnimTimeout = _viewAnimTimeout.max();
+    _views[_currentView]->receiveAccess();
+  }
+
+  if (not PadsAccess::isAccessing()) {
+    return;
+  }
+
+  if (_banks.size() == 0) {
+    return;
+  }
+}
+
+void PiSample::onAccess()
+{
+  if (_banks.size() == 0) {
+    // if we don’t have any sample, play an animation
+    pads().startPlaying(caterpillar(), true);
+    return;
+  }
+  std::cout << "access" << std::endl;
+
+  bool allOff = true;
+  for (unsigned i = 0; i < _banks[_currentBank].size(); ++i) {
+    auto& p = _banks[_currentBank][i];
+    if (p.has_value()) {
+      std::cout << "coin " << i << std::endl;
+      pads().setPad(
+        atom::Pad::One + i,
+        atom::PadMode::On,
+        p->Color
+      );
+      allOff = false;
+    }
+    else {
+      pads().setPad(
+        atom::Pad::One + i,
+        atom::PadMode::Off,
+        atom::Color{}
+      );
+    }
+  }
+
+  if (allOff) {
+    pads().startPlaying(caterpillar(), true);
   }
 }

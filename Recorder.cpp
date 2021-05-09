@@ -1,5 +1,6 @@
 #include "Recorder.h"
 #include "Alsa.h"
+#include "Log.h"
 
 #include <iostream>
 #include <iomanip>
@@ -16,6 +17,8 @@ namespace c = std::chrono;
 
 namespace 
 {
+  auto logger = Log("REC");
+
   string filenameForTime(const c::system_clock::time_point& time)
   {
     time_t tt = c::system_clock::to_time_t(time);
@@ -37,7 +40,7 @@ namespace
   {
     auto it = str.find(',');
     if (it == string::npos) {
-      throw Exception("Invalid " AUDIO_IN "channels parameter, expecting 'a,b'");
+      logger.throw_("Invalid " AUDIO_IN "channels parameter, expecting 'a,b'");
     }
     array<int, 2> result;
     result[0] = stoi(str.substr(0, it));
@@ -69,8 +72,9 @@ unordered_map<string, Argument> Recorder::args()
   };
 }
 
-Recorder::Recorder(Device& d, const ArgMap& args)
-  : _device(d)
+Recorder::Recorder(Device& d, Pads& pads, const ArgMap& args)
+  : PadsAccess(pads)
+  , _device(d)
   , _recordDir(* args.find(AUDIO_IN "record-dir")->second.Value)
   , _interface(* args.find(AUDIO_IN "card")->second.Value)
   , _inputChannelCount(stoi(* args.find(AUDIO_IN "channel-count")->second.Value))
@@ -81,7 +85,7 @@ Recorder::Recorder(Device& d, const ArgMap& args)
   if (not _recordDir.empty() && _recordDir.back() != '/') {
     filesystem::directory_entry dir(_recordDir);
     if (not dir.exists() or not dir.is_directory()) {
-      throw Exception("Configured " AUDIO_IN "record-dir '{}' does not exist or "
+      logger.throw_("Configured " AUDIO_IN "record-dir '{}' does not exist or "
           "is not a directory", _recordDir);
     }
     // TODO : check writable by us, not much of a concern on a PI.
@@ -98,10 +102,10 @@ Recorder::Recorder(Device& d, const ArgMap& args)
   // flac always take in 24 bit samples padded to 32 bits and always
   // 2 channels.
   _convBuf.resize(sampleCount * sizeof(uint32_t) * _channels.size());
-  fmt::print("[REC] input channels: {}, rate: {}, sample bits: {} (stored: {})\n",
+  logger.info("input channels: {}, rate: {}, sample bits: {} (stored: {})\n",
     _inputChannelCount, _in.Format.Rate, _in.Format.Bits, _storageBytes * 8);
 
-  fmt::print("[REC] Recording channels {},{} on {}\n",
+  logger.info("Recording channels {},{} on {}\n",
       _channels[0], _channels[1], _interface);
   cout.flush();
   _thread = thread([this]{ run(); });
@@ -169,14 +173,10 @@ void Recorder::startRecording()
       nullptr
   );
   if (res != FLAC__STREAM_ENCODER_INIT_STATUS_OK) {
-    throw Exception("Could not initialize FLAC encoder ({})", (int)res);
+    logger.throw_("Could not initialize FLAC encoder ({})", (int)res);
   }
 
-  // int alsaRes = snd_pcm_start(_in.Ptr);
-  // if (alsaRes < 0) {
-  //   throw Exception("Could not start recording ({})", AlsaErr{res});
-  // }
-  fmt::print("[REC] Starting to record to {}\n", fileName);
+  logger.info("Starting to record to {}\n", fileName);
 }
 
 void Recorder::stopRecording(bool drain)
@@ -189,8 +189,7 @@ void Recorder::stopRecording(bool drain)
     FLAC__stream_encoder_finish(_enc.get());
   }
   _enc.reset();
-  fmt::print("[REC] Stopped recording (ok: {}, errors: {})\n",
-    _readOk, _readErrors);
+  logger.info("Stopped recording (ok: {}, errors: {})\n", _readOk, _readErrors);
   cout.flush();
   _readErrors = 0;
 }
@@ -208,13 +207,13 @@ void Recorder::recordFrames()
       return;
     }
     if (_readErrors == 0) {
-      fmt::print("[REC] Read error: {} ({})\n",
-          AlsaErr{nFrames}, nFrames);
+      // TODO: make this a set
+      logger.warn("First read error: {} ({})\n", AlsaErr{nFrames}, nFrames);
     }
     ++_readErrors;
     int res = snd_pcm_recover(_in.Ptr, nFrames, true /*silent*/);
     if (res < 0) {
-      fmt::print("[REC] Failed to recover after recording error, stopping...\n");
+      logger.error("Failed to recover after recording error, stopping...\n");
       stopRecording(false /* no drain, stuff failed */);
       return;
     }
@@ -278,5 +277,5 @@ void Recorder::run()
     }
   }
 
-  fmt::print("[REC] Record thread exit\n");
+  logger.info("Record thread exit\n");
 }

@@ -2,21 +2,23 @@
 
 #include "Alsa.h"
 #include "Arguments.h"
+#include "PadsAccess.h"
 
 #include <thread>
 #include <atomic>
 #include <mutex>
 #include <filesystem>
 
+
 namespace ps
 {
 
-  class Player
+  class Player : public PadsAccess
   {
   public:
     static ArgMap args();
 
-    Player(const ArgMap& args);
+    Player(const ArgMap& args, Pads& pads);
     Player(const Player&) = delete;
     ~Player();
 
