@@ -1,21 +1,50 @@
 #pragma once
 
 #include "fmt.h"
+#include "Log.h"
 
 #include <iostream>
 #include <string>
 #include <filesystem>
+#include <chrono>
+#include <functional>
 
 #include <fmt/format.h>
 
 namespace ps
 {
+  class Log;
+
+  namespace details
+  {
+    template <class PrintFuncT>
+    struct LogTimer
+    {
+      LogTimer(PrintFuncT&& print)
+          : _printer(std::move(print))
+      { }
+
+      LogTimer(const LogTimer&) = delete;
+      LogTimer& operator=(const LogTimer&) = delete;
+
+      template <class Func>
+      void operator=(Func&&);
+
+    private:
+      PrintFuncT _printer;
+    };
+  }
+
   template <class OStream>
   OStream& operator<<(OStream& out, const std::filesystem::path& path)
   {
     out << path.c_str();
     return out;
   }
+
+  #define PS_LOG_TIME(logger, format, args) \
+    logger.execTime(format, args) = [&]
+
 
   class Log
   {
@@ -53,6 +82,11 @@ namespace ps
     {
       throw Exception(format, std::forward<Args>(args)...);
     }
+    
+    /// Usage:
+    /// logger.execTime("loading file {}", filename) = [&]{ loadFile(fileName); };
+    template <class ... Args>
+    auto execTime(const char* format, Args&& ... args);
 
   private:
     std::string _prefix;
@@ -79,4 +113,29 @@ namespace ps
                 << fmt::format(format, std::forward<Args>(args)... ) << '\n';
     }
   };
+
+  template <class ... Args>
+  auto Log::execTime(const char* format, Args&& ... args)
+  {
+    auto formatted = fmt::format(format, std::forward<Args>(args)... );
+    return ::ps::details::LogTimer(
+      [&](std::chrono::milliseconds ms) {
+          std::cout << _prefix << _levelStrings[Info]
+              << " run took " << ms.count() << "ms for " << formatted << '\n';
+      }
+    );
+  }
+
+}
+
+template <class PrintFuncT>
+template <class MeasureFuncT>
+void ::ps::details::LogTimer<PrintFuncT>::operator=(MeasureFuncT&& func)
+{
+  namespace c = std::chrono;
+  c::steady_clock::time_point start = c::steady_clock::now();
+  // TODO: some barrier to ensure parts of func don’t run before the clock ?
+  std::forward<MeasureFuncT>(func)();
+  c::steady_clock::time_point stop = c::steady_clock::now();
+  _printer(c::duration_cast<c::milliseconds>(stop - start));
 }

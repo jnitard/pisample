@@ -53,6 +53,7 @@ all: $(BIN)
 SRC = main.cpp      \
       Alsa.cpp      \
       Device.cpp    \
+      ffmpeg.cpp    \
       Pads.cpp      \
       PiSample.cpp  \
       Player.cpp    \
@@ -105,7 +106,8 @@ sync: $(BIN)
 
 ### !! The command lines when running debugging
 ARGS = --config ~/pisample/config.ini \
-			 --record \
+
+#			 --record \
 #
 #--audio-in-card pulse \
 

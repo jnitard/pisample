@@ -102,10 +102,10 @@ Recorder::Recorder(Device& d, Pads& pads, const ArgMap& args)
   // flac always take in 24 bit samples padded to 32 bits and always
   // 2 channels.
   _convBuf.resize(sampleCount * sizeof(uint32_t) * _channels.size());
-  logger.info("input channels: {}, rate: {}, sample bits: {} (stored: {})\n",
+  logger.info("input channels: {}, rate: {}, sample bits: {} (stored: {})",
     _inputChannelCount, _in.Format.Rate, _in.Format.Bits, _storageBytes * 8);
 
-  logger.info("Recording channels {},{} on {}\n",
+  logger.info("Recording channels {},{} on {}",
       _channels[0], _channels[1], _interface);
   cout.flush();
   _thread = thread([this]{ run(); });
@@ -226,6 +226,9 @@ void Recorder::recordFrames()
 
     ++_readOk;
 
+    // We get too many channels from the card (on my mixer I get 10 or 5*2).
+    // The code below selects the two channels we want to record by 
+    // de-interleaving the data.
     // TODO: this shouts "vectorize me"
     for (long i = 0; i < nFrames; ++i) {
       for (long j = 0; j < 2; ++ j) {
@@ -277,5 +280,5 @@ void Recorder::run()
     }
   }
 
-  logger.info("Record thread exit\n");
+  logger.info("Record thread exit");
 }
